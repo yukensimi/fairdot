@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FairDot — Fair Memecoin Protocol on Portaldot</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<style>
+  :root {
+    /* ===== CLAYMORPHISM LAVENDER PALETTE ===== */
+    --bg1:#EDE5FF; --bg2:#F8F4FF; --bg3:#E0D4FF;
+    --card:#FFFFFF; --card-tint:#F5F0FF;
+    --text:#1E1B4B; --text-soft:#4A4575; --muted:#8B85B0;
+    --primary:#6D5BD0; --primary-dark:#5A49B8; --primary-light:#A78BFA;
+    --pink:#FF8FB1; --pink-dark:#F472B6; --pink-soft:#FFE0EC;
+    --cyan:#22D3EE; --cyan-dark:#06B6D4;
+    --green:#34D399; --green-dark:#10B981;
+    --red:#F87171; --red-dark:#EF4444;
+    --navy:#2D2A5E;
+    --shadow-clay: 0 8px 24px rgba(109,91,208,0.18), 0 2px 6px rgba(109,91,208,0.1), inset 0 -3px 6px rgba(109,91,208,0.08), inset 0 3px 6px rgba(255,255,255,0.9);
+    --shadow-clay-lg: 0 16px 40px rgba(109,91,208,0.22), 0 4px 12px rgba(109,91,208,0.12), inset 0 -4px 8px rgba(109,91,208,0.08), inset 0 4px 8px rgba(255,255,255,0.9);
+    --shadow-pink: 0 8px 24px rgba(244,114,182,0.25), inset 0 -3px 6px rgba(244,114,182,0.15), inset 0 3px 6px rgba(255,255,255,0.7);
+    --radius:24px; --radius-lg:32px; --radius-sm:16px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Bricolage Grotesque',sans-serif;background:linear-gradient(135deg,var(--bg1) 0%,var(--bg2) 50%,var(--bg3) 100%);color:var(--text);overflow-x:hidden;min-height:100vh}
+
+  /* ===== VIDEO BACKGROUND (CLEAR, NOT BLURRY) ===== */
+  .video-bg {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    object-fit: cover; z-index: -3; opacity: 0.45;
+    filter: saturate(1.1) contrast(1.05);
+  }
+  .video-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: linear-gradient(180deg, rgba(237,229,255,0.75) 0%, rgba(248,244,255,0.6) 40%, rgba(224,212,255,0.8) 100%);
+    z-index: -2;
+  }
+  .bg-gradient{position:fixed;top:0;left:0;width:100%;height:100%;background:radial-gradient(ellipse at 20% 20%,rgba(167,139,250,.25) 0%,transparent 50%),radial-gradient(ellipse at 80% 80%,rgba(34,211,238,.15) 0%,transparent 50%);z-index:-1;animation:bgShift 15s ease-in-out infinite alternate}
+  @keyframes bgShift{0%{filter:hue-rotate(0deg)}100%{filter:hue-rotate(20deg)}}
+  .grid-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background-image:linear-gradient(rgba(109,91,208,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(109,91,208,.05) 1px,transparent 1px);background-size:50px 50px;z-index:0;pointer-events:none}
+  .particle{position:fixed;border-radius:50%;pointer-events:none;z-index:1;opacity:.5;animation:float 8s ease-in-out infinite;box-shadow:0 4px 12px rgba(109,91,208,.3)}
+  @keyframes float{0%,100%{transform:translateY(0) rotate(0deg)}50%{transform:translateY(-30px) rotate(180deg)}}
+  .scroll-progress{position:fixed;top:0;left:0;height:4px;background:linear-gradient(90deg,var(--primary),var(--cyan),var(--pink));z-index:60;width:0;transition:width .1s;border-radius:0 4px 4px 0}
+  .reveal{opacity:0;transform:translateY(30px);transition:opacity .7s ease,transform .7s ease}
+  .reveal.visible{opacity:1;transform:translateY(0)}
+
+  /* ===== ENTRY SCREEN ===== */
+  #entryScreen{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:100;transition:opacity .8s ease,transform .8s ease}
+  #entryScreen.hidden{opacity:0;transform:scale(1.1);pointer-events:none}
+  .entry-logo-wrap{position:relative;margin-bottom:2rem}
+  .entry-logo{width:140px;height:140px;border-radius:50%;object-fit:cover;border:4px solid white;box-shadow:var(--shadow-clay-lg);animation:pulse 2s ease-in-out infinite;position:relative;z-index:2}
+  .entry-logo-ring{position:absolute;top:-15px;left:-15px;width:170px;height:170px;border:3px dashed var(--primary-light);border-radius:50%;animation:spin 10s linear infinite;opacity:.6}
+  .entry-logo-ring2{position:absolute;top:-30px;left:-30px;width:200px;height:200px;border:2px solid var(--pink);border-radius:50%;animation:spin 15s linear infinite reverse;opacity:.4}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes pulse{0%,100%{box-shadow:var(--shadow-clay-lg)}50%{box-shadow:0 20px 50px rgba(109,91,208,.35),0 0 60px rgba(255,143,177,.3)}}
+  .entry-title{font-size:clamp(3rem,8vw,6rem);font-weight:800;background:linear-gradient(135deg,var(--primary),var(--cyan-dark),var(--pink-dark),var(--primary));background-size:300% auto;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;animation:gradientShift 3s linear infinite;letter-spacing:-2px;margin-bottom:.5rem;filter:drop-shadow(0 4px 12px rgba(109,91,208,.3))}
+  @keyframes gradientShift{to{background-position:300% center}}
+  .entry-subtitle{font-size:clamp(1rem,2.5vw,1.4rem);color:var(--text-soft);margin-bottom:3rem;text-align:center;max-width:500px;padding:0 1rem;line-height:1.6;font-weight:500}
+  .enter-btn{font-family:'Bricolage Grotesque',sans-serif;font-size:1.3rem;font-weight:700;padding:1.2rem 3.5rem;border:none;border-radius:50px;background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:white;cursor:pointer;transition:all .2s ease;box-shadow:var(--shadow-clay-lg),0 6px 0 var(--primary-dark);letter-spacing:1px;text-transform:uppercase;position:relative;overflow:hidden;z-index:2}
+  .enter-btn:hover{transform:translateY(-2px);box-shadow:0 20px 40px rgba(109,91,208,.4),0 6px 0 var(--primary-dark)}
+  .enter-btn:active{transform:translateY(4px);box-shadow:0 4px 12px rgba(109,91,208,.3),0 2px 0 var(--primary-dark)}
+  .entry-footer{position:absolute;bottom:2rem;color:var(--muted);font-size:.85rem;display:flex;align-items:center;gap:.5rem;z-index:2}
+  .portaldot-badge{display:inline-flex;align-items:center;gap:.5rem;padding:.5rem 1.2rem;border-radius:30px;background:var(--card);box-shadow:var(--shadow-clay);font-size:.8rem;color:var(--text-soft);font-weight:600}
+  .portaldot-badge img{width:22px;height:22px;border-radius:6px}
+
+  /* ===== NAVBAR ===== */
+  nav{position:fixed;top:0;left:0;right:0;padding:1rem 2rem;display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,.8);backdrop-filter:blur(20px);border-bottom:1px solid rgba(109,91,208,.1);box-shadow:0 4px 20px rgba(109,91,208,.08);z-index:50}
+  .nav-logo{display:flex;align-items:center;gap:.75rem;font-weight:800;font-size:1.4rem;color:var(--text)}
+  .nav-logo img{width:42px;height:42px;border-radius:50%;border:3px solid white;box-shadow:var(--shadow-clay)}
+  .nav-links{display:flex;gap:2rem;list-style:none}
+  .nav-links a{color:var(--text-soft);text-decoration:none;font-weight:600;transition:color .3s;position:relative}
+  .nav-links a::after{content:'';position:absolute;bottom:-4px;left:0;width:0;height:3px;background:linear-gradient(90deg,var(--primary),var(--pink));border-radius:3px;transition:width .3s}
+  .nav-links a:hover{color:var(--primary)}
+  .nav-links a:hover::after{width:100%}
+  .connect-btn{font-family:'Bricolage Grotesque',sans-serif;padding:.75rem 1.75rem;border:none;border-radius:30px;background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:white;cursor:pointer;font-weight:700;transition:all .2s;font-size:.95rem;box-shadow:var(--shadow-clay),0 3px 0 var(--primary-dark)}
+  .connect-btn:hover{transform:translateY(-2px);box-shadow:0 12px 24px rgba(109,91,208,.3),0 3px 0 var(--primary-dark)}
+  .connect-btn:active{transform:translateY(2px);box-shadow:0 4px 8px rgba(109,91,208,.2),0 1px 0 var(--primary-dark)}
+  .connect-btn.connected{background:linear-gradient(135deg,var(--green),var(--green-dark));box-shadow:var(--shadow-clay),0 3px 0 var(--green-dark)}
+
+  /* ===== LANDING ===== */
+  #landingPage{padding-top:80px;position:relative;z-index:2}
+  .hero{min-height:90vh;display:flex;align-items:center;justify-content:center;padding:4rem 2rem;text-align:center;position:relative}
+  .hero-content{max-width:900px;position:relative;z-index:2}
+  .hero-badge{display:inline-block;padding:.6rem 1.4rem;border-radius:30px;background:var(--card);box-shadow:var(--shadow-clay);font-size:.85rem;color:var(--primary);margin-bottom:1.5rem;font-family:'Space Mono',monospace;font-weight:700}
+  .hero h1{font-size:clamp(2.5rem,7vw,5rem);font-weight:800;line-height:1.1;margin-bottom:1.5rem;letter-spacing:-2px;color:var(--text)}
+  .hero h1 .gradient{background:linear-gradient(135deg,var(--primary),var(--cyan-dark),var(--pink-dark));background-size:200% auto;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;animation:gradientShift 3s linear infinite}
+  .hero p{font-size:clamp(1rem,2vw,1.3rem);color:var(--text-soft);margin-bottom:2.5rem;max-width:600px;margin-left:auto;margin-right:auto;line-height:1.6;font-weight:500}
+  .hero-actions{display:flex;gap:1rem;justify-content:center;flex-wrap:wrap}
+  .btn-primary{font-family:'Bricolage Grotesque',sans-serif;padding:1.1rem 2.5rem;border:none;border-radius:30px;background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:white;font-weight:700;font-size:1.1rem;cursor:pointer;transition:all .2s;box-shadow:var(--shadow-clay),0 4px 0 var(--primary-dark);position:relative;overflow:hidden}
+  .btn-primary:hover{transform:translateY(-2px);box-shadow:0 16px 32px rgba(109,91,208,.35),0 4px 0 var(--primary-dark)}
+  .btn-primary:active{transform:translateY(3px);box-shadow:0 4px 8px rgba(109,91,208,.2),0 1px 0 var(--primary-dark)}
+  .btn-secondary{font-family:'Bricolage Grotesque',sans-serif;padding:1.1rem 2.5rem;border:none;border-radius:30px;background:var(--card);color:var(--text);font-weight:700;font-size:1.1rem;cursor:pointer;transition:all .2s;box-shadow:var(--shadow-clay)}
+  .btn-secondary:hover{transform:translateY(-2px);box-shadow:var(--shadow-clay-lg);color:var(--primary)}
+  .btn-secondary:active{transform:translateY(2px);box-shadow:0 2px 6px rgba(109,91,208,.15)}
+
+  /* ===== STATS (3D CLAY) ===== */
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1.5rem;padding:3rem 2rem;max-width:1000px;margin:0 auto;position:relative;z-index:2}
+  .stat-card{background:var(--card);border-radius:var(--radius);padding:1.75rem 1.5rem;text-align:center;transition:all .3s;box-shadow:var(--shadow-clay);position:relative;overflow:hidden;border:2px solid rgba(255,255,255,.8)}
+  .stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:5px;background:linear-gradient(90deg,var(--primary),var(--pink),var(--cyan));border-radius:var(--radius) var(--radius) 0 0}
+  .stat-card:hover{transform:translateY(-6px);box-shadow:var(--shadow-clay-lg)}
+  .stat-number{font-size:2.8rem;font-weight:800;background:linear-gradient(135deg,var(--primary),var(--pink-dark));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;font-family:'Space Mono',monospace;filter:drop-shadow(0 2px 4px rgba(109,91,208,.2))}
+  .stat-label{color:var(--muted);font-size:.9rem;margin-top:.5rem;font-weight:600}
+
+  section{padding:5rem 2rem;position:relative;z-index:2}
+  .section-title{text-align:center;font-size:clamp(2rem,5vw,3rem);font-weight:800;margin-bottom:1rem;letter-spacing:-1px;color:var(--text)}
+  .section-title .gradient{background:linear-gradient(135deg,var(--primary),var(--pink-dark));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  .section-subtitle{text-align:center;color:var(--text-soft);margin-bottom:3rem;font-size:1.1rem;max-width:600px;margin-left:auto;margin-right:auto;font-weight:500}
+
+  /* ===== FEATURE CARDS (3D CLAY) ===== */
+  .feature-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1.75rem;max-width:1200px;margin:0 auto}
+  .feature-card{background:var(--card);border-radius:var(--radius);padding:2rem;transition:all .3s;position:relative;overflow:hidden;box-shadow:var(--shadow-clay);border:2px solid rgba(255,255,255,.8)}
+  .feature-card::before{content:'';position:absolute;top:0;left:0;right:0;height:5px;background:linear-gradient(90deg,var(--primary),var(--cyan));transform:scaleX(0);transition:transform .4s;border-radius:var(--radius) var(--radius) 0 0}
+  .feature-card:hover::before{transform:scaleX(1)}
+  .feature-card:hover{transform:translateY(-8px);box-shadow:var(--shadow-clay-lg)}
+  .feature-icon{width:64px;height:64px;border-radius:20px;background:linear-gradient(135deg,var(--card-tint),white);display:flex;align-items:center;justify-content:center;margin-bottom:1.2rem;font-size:2rem;box-shadow:var(--shadow-clay);transition:transform .3s;border:2px solid rgba(255,255,255,.9)}
+  .feature-card:hover .feature-icon{transform:rotate(-10deg) scale(1.1) translateY(-4px);box-shadow:var(--shadow-clay-lg)}
+  .feature-card h3{font-size:1.3rem;font-weight:700;margin-bottom:.75rem;color:var(--text)}
+  .feature-card p{color:var(--text-soft);line-height:1.6;font-size:.95rem}
+
+  /* ===== CHARTS ===== */
+  .charts-section{background:rgba(255,255,255,.5);backdrop-filter:blur(10px);border-top:1px solid rgba(109,91,208,.1);border-bottom:1px solid rgba(109,91,208,.1)}
+  .chart-container{max-width:1200px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:2rem}
+  .chart-box{background:var(--card);border-radius:var(--radius);padding:1.75rem;box-shadow:var(--shadow-clay);border:2px solid rgba(255,255,255,.8)}
+  .chart-box h3{font-size:1.1rem;margin-bottom:1rem;color:var(--text);text-align:center;font-weight:700}
+  .chart-box .chart{width:100%;height:350px}
+
+  .comparison{max-width:800px;margin:3rem auto 0}
+  .comp-row{margin-bottom:1.75rem}
+  .comp-label{display:flex;justify-content:space-between;margin-bottom:.6rem;font-size:.95rem;font-weight:600;color:var(--text-soft)}
+  .comp-bar-wrap{height:36px;background:var(--card-tint);border-radius:18px;overflow:hidden;position:relative;box-shadow:inset 0 2px 6px rgba(109,91,208,.1)}
+  .comp-bar{height:100%;border-radius:18px;width:0;transition:width 1.5s ease;display:flex;align-items:center;padding-left:1.2rem;font-size:.85rem;font-weight:700;color:white;box-shadow:inset 0 -3px 6px rgba(0,0,0,.1),inset 0 3px 6px rgba(255,255,255,.3)}
+  .comp-bar.normal{background:linear-gradient(135deg,var(--red),#FB923C)}
+  .comp-bar.fairdot{background:linear-gradient(135deg,var(--primary),var(--cyan-dark))}
+
+  /* ===== ARCHITECTURE ===== */
+  .arch-diagram{max-width:900px;margin:0 auto;background:var(--card);border-radius:var(--radius-lg);padding:2.5rem;overflow-x:auto;box-shadow:var(--shadow-clay-lg);border:2px solid rgba(255,255,255,.8)}
+  .arch-diagram svg{width:100%;height:auto;min-width:600px}
+
+  /* ===== HOW IT WORKS ===== */
+  .how-section{background:rgba(255,255,255,.5);backdrop-filter:blur(10px);border-top:1px solid rgba(109,91,208,.1);border-bottom:1px solid rgba(109,91,208,.1)}
+  .timeline{max-width:800px;margin:0 auto;position:relative;padding-left:3.5rem}
+  .timeline::before{content:'';position:absolute;left:18px;top:0;bottom:0;width:4px;background:linear-gradient(180deg,var(--primary),var(--pink),var(--cyan));border-radius:4px}
+  .timeline-item{position:relative;margin-bottom:2.5rem;background:var(--card);border-radius:var(--radius);padding:1.75rem;transition:all .3s;box-shadow:var(--shadow-clay);border:2px solid rgba(255,255,255,.8)}
+  .timeline-item:hover{transform:translateX(10px);box-shadow:var(--shadow-clay-lg)}
+  .timeline-dot{position:absolute;left:-3.5rem;top:1.5rem;width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,var(--primary),var(--pink-dark));display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1rem;font-family:'Space Mono',monospace;color:white;box-shadow:var(--shadow-clay),0 0 0 4px white,0 0 0 6px var(--primary-light)}
+  .timeline-item h4{font-size:1.2rem;margin-bottom:.5rem;color:var(--primary);font-weight:700}
+  .timeline-item p{color:var(--text-soft);line-height:1.6}
+
+  footer{padding:3rem 2rem;text-align:center;border-top:1px solid rgba(109,91,208,.1);color:var(--muted);font-size:.9rem;background:rgba(255,255,255,.6);backdrop-filter:blur(10px);position:relative;z-index:2}
+  .footer-links{display:flex;justify-content:center;gap:2rem;margin-bottom:1.5rem;flex-wrap:wrap}
+  .footer-links a{color:var(--text-soft);text-decoration:none;font-weight:600;transition:color .3s}
+  .footer-links a:hover{color:var(--primary)}
+  .footer-badge{display:inline-flex;align-items:center;gap:.5rem;margin-top:1rem;padding:.6rem 1.2rem;border-radius:30px;background:var(--card);box-shadow:var(--shadow-clay);color:var(--text-soft);font-weight:600}
+  .footer-badge img{width:24px;height:24px;border-radius:6px}
+
+  /* ===== DASHBOARD ===== */
+  #dashboard{display:none;padding-top:80px;min-height:100vh;position:relative;z-index:2;background:rgba(237,229,255,.85);backdrop-filter:blur(8px)}
+  #dashboard.active{display:block}
+  .dashboard-layout{display:flex;min-height:calc(100vh - 80px)}
+  .sidebar{width:240px;background:var(--card);border-right:1px solid rgba(109,91,208,.1);padding:1.5rem 1rem;position:sticky;top:80px;height:calc(100vh - 80px);box-shadow:4px 0 20px rgba(109,91,208,.08)}
+  .sidebar-item{display:flex;align-items:center;gap:.75rem;padding:.9rem 1rem;border-radius:var(--radius-sm);cursor:pointer;color:var(--text-soft);font-weight:600;transition:all .2s;margin-bottom:.4rem;font-size:.95rem}
+  .sidebar-item:hover{background:var(--card-tint);color:var(--primary);transform:translateX(4px)}
+  .sidebar-item.active{background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:white;box-shadow:var(--shadow-clay),0 3px 0 var(--primary-dark)}
+  .sidebar-item .icon{font-size:1.2rem;width:24px;text-align:center}
+  .sidebar-divider{height:2px;background:var(--card-tint);margin:1rem 0;border-radius:2px}
+  .sidebar-wallet{background:var(--card-tint);border-radius:var(--radius-sm);padding:1rem;font-size:.8rem;color:var(--muted);box-shadow:inset 0 2px 6px rgba(109,91,208,.08)}
+  .sidebar-wallet .addr{font-family:'Space Mono',monospace;color:var(--primary);word-break:break-all;font-size:.75rem;font-weight:700}
+  .sidebar-wallet .balance{font-size:1.1rem;font-weight:800;color:var(--text);margin-top:.3rem}
+  .sidebar-wallet .wallet-type{display:inline-block;padding:.2rem .6rem;border-radius:10px;background:linear-gradient(135deg,var(--pink-soft),white);color:var(--pink-dark);font-size:.7rem;font-weight:700;margin-bottom:.4rem}
+  .dashboard-main{flex:1;padding:2rem;max-width:1000px}
+  .dash-header{margin-bottom:2rem}
+  .dash-header h2{font-size:1.8rem;font-weight:800;margin-bottom:.3rem;color:var(--text)}
+  .dash-header p{color:var(--text-soft);font-size:.95rem}
+  .dash-card{background:var(--card);border-radius:var(--radius);padding:1.75rem;margin-bottom:1.5rem;box-shadow:var(--shadow-clay);border:2px solid rgba(255,255,255,.8)}
+  .dash-card h3{font-size:1.1rem;font-weight:700;margin-bottom:1rem;display:flex;align-items:center;gap:.5rem;color:var(--text)}
+  .form-group{margin-bottom:1.2rem}
+  .form-group label{display:block;font-size:.85rem;color:var(--text-soft);margin-bottom:.4rem;font-weight:600}
+  .form-group input,.form-group select,.form-group textarea{width:100%;padding:.85rem 1.1rem;background:var(--card-tint);border:2px solid transparent;border-radius:var(--radius-sm);color:var(--text);font-family:inherit;font-size:.95rem;transition:all .2s;box-shadow:inset 0 2px 6px rgba(109,91,208,.08)}
+  .form-group input:focus,.form-group select:focus,.form-group textarea:focus{outline:none;border-color:var(--primary);background:white;box-shadow:0 0 0 4px rgba(109,91,208,.15)}
+  .form-row{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+  .form-hint{font-size:.75rem;color:var(--muted);margin-top:.3rem}
+  .token-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1.25rem}
+  .token-card{background:var(--card);border-radius:var(--radius);padding:1.4rem;cursor:pointer;transition:all .3s;box-shadow:var(--shadow-clay);border:2px solid rgba(255,255,255,.8)}
+  .token-card:hover{transform:translateY(-5px);box-shadow:var(--shadow-clay-lg);border-color:var(--primary-light)}
+  .token-card .token-header{display:flex;align-items:center;gap:.75rem;margin-bottom:.8rem}
+  .token-avatar{width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.4rem;font-weight:800;color:white;flex-shrink:0;box-shadow:var(--shadow-clay);border:3px solid white}
+  .token-card .token-name{font-weight:700;font-size:1rem;color:var(--text)}
+  .token-card .token-symbol{font-size:.8rem;color:var(--muted);font-family:'Space Mono',monospace;font-weight:700}
+  .token-stats{display:flex;justify-content:space-between;font-size:.82rem;margin-top:.5rem}
+  .token-stats .label{color:var(--muted)}
+  .token-stats .value{font-weight:700;font-family:'Space Mono',monospace;color:var(--text)}
+  .price-up{color:var(--green-dark)!important}.price-down{color:var(--red-dark)!important}
+  .badge-protected{display:inline-block;padding:.25rem .65rem;border-radius:12px;background:linear-gradient(135deg,#D1FAE5,white);color:var(--green-dark);font-size:.7rem;font-weight:700;border:1px solid rgba(16,185,129,.2)}
+  .trade-tabs{display:flex;gap:.75rem;margin-bottom:1.5rem}
+  .trade-tab{flex:1;padding:.85rem;border:none;border-radius:var(--radius-sm);background:var(--card-tint);color:var(--muted);cursor:pointer;font-weight:700;font-family:inherit;font-size:1rem;transition:all .2s;box-shadow:inset 0 2px 4px rgba(109,91,208,.08)}
+  .trade-tab.active{color:white;box-shadow:var(--shadow-clay)}
+  .trade-tab.buy.active{background:linear-gradient(135deg,var(--green),var(--green-dark))}
+  .trade-tab.sell.active{background:linear-gradient(135deg,var(--red),var(--red-dark))}
+  .trade-summary{background:var(--card-tint);border-radius:var(--radius-sm);padding:1.1rem;margin-top:1rem;font-size:.88rem;box-shadow:inset 0 2px 6px rgba(109,91,208,.08)}
+  .trade-summary .row{display:flex;justify-content:space-between;padding:.35rem 0}
+  .trade-summary .label{color:var(--muted);font-weight:600}
+  .trade-summary .value{font-family:'Space Mono',monospace;font-weight:700;color:var(--text)}
+  .portfolio-row{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:1rem;padding:1.1rem;border-bottom:1px solid var(--card-tint);align-items:center;font-size:.9rem}
+  .portfolio-row.header{color:var(--muted);font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+  .portfolio-row:last-child{border-bottom:none}
+  .progress-bar{height:10px;background:var(--card-tint);border-radius:5px;overflow:hidden;margin-top:.4rem;box-shadow:inset 0 2px 4px rgba(109,91,208,.1)}
+  .progress-fill{height:100%;background:linear-gradient(90deg,var(--primary),var(--cyan-dark));border-radius:5px;transition:width 1s ease;box-shadow:inset 0 -2px 4px rgba(0,0,0,.1),inset 0 2px 4px rgba(255,255,255,.3)}
+  .toast{position:fixed;bottom:2rem;left:50%;transform:translateX(-50%) translateY(100px);background:var(--card);border:2px solid var(--primary-light);border-radius:var(--radius);padding:1rem 2rem;color:var(--text);z-index:200;transition:transform .4s ease;box-shadow:var(--shadow-clay-lg);font-weight:600}
+  .toast.visible{transform:translateX(-50%) translateY(0)}
+  .tab-content{display:none}
+  .tab-content.active{display:block;animation:fadeIn .4s ease}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+  .mock-notice{background:linear-gradient(135deg,var(--pink-soft),#FFF0F5);border:1px solid rgba(244,114,182,.25);border-radius:var(--radius-sm);padding:.9rem 1.1rem;font-size:.82rem;color:var(--pink-dark);margin-bottom:1.2rem;font-weight:600}
+
+  /* ===== WALLET MODAL ===== */
+  .wallet-modal-overlay{position:fixed;inset:0;background:rgba(30,27,75,.4);backdrop-filter:blur(8px);z-index:300;display:none;align-items:center;justify-content:center;padding:1rem}
+  .wallet-modal-overlay.visible{display:flex;animation:fadeIn .3s ease}
+  .wallet-modal{background:var(--card);border-radius:var(--radius-lg);padding:2rem;max-width:420px;width:100%;box-shadow:var(--shadow-clay-lg);animation:modalIn .3s ease;max-height:90vh;overflow-y:auto;border:3px solid white}
+  @keyframes modalIn{from{opacity:0;transform:scale(.9) translateY(20px)}to{opacity:1;transform:scale(1) translateY(0)}}
+  .wallet-modal h3{font-size:1.4rem;font-weight:800;margin-bottom:.5rem;text-align:center;color:var(--text)}
+  .wallet-modal p{color:var(--text-soft);font-size:.88rem;text-align:center;margin-bottom:1.5rem}
+  .wallet-option{display:flex;align-items:center;gap:1rem;padding:1rem;border-radius:var(--radius-sm);cursor:pointer;transition:all .2s;margin-bottom:.75rem;background:var(--card-tint);border:2px solid transparent}
+  .wallet-option:hover{border-color:var(--primary-light);background:white;transform:translateX(6px);box-shadow:var(--shadow-clay)}
+  .wallet-option.disabled{opacity:.4;cursor:not-allowed}
+  .wallet-option.disabled:hover{transform:none;border-color:transparent;background:var(--card-tint);box-shadow:none}
+  .wallet-icon{width:48px;height:48px;border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:1.5rem;flex-shrink:0;background:white;box-shadow:var(--shadow-clay);border:2px solid rgba(255,255,255,.9)}
+  .wallet-info{flex:1}
+  .wallet-info .name{font-weight:700;font-size:1rem;color:var(--text)}
+  .wallet-info .desc{font-size:.75rem;color:var(--muted);margin-top:.15rem}
+  .wallet-tag{font-size:.65rem;padding:.25rem .6rem;border-radius:10px;font-weight:700;flex-shrink:0}
+  .wallet-tag.evm{background:linear-gradient(135deg,#CFFAFE,white);color:var(--cyan-dark);border:1px solid rgba(6,182,212,.25)}
+  .wallet-tag.substrate{background:linear-gradient(135deg,var(--pink-soft),white);color:var(--pink-dark);border:1px solid rgba(244,114,182,.25)}
+  .wallet-close{position:absolute;top:1rem;right:1rem;background:var(--card-tint);border:none;color:var(--muted);font-size:1.4rem;cursor:pointer;padding:.3rem .7rem;border-radius:12px;transition:all .2s;font-weight:700}
+  .wallet-close:hover{color:var(--red-dark);background:var(--pink-soft);transform:rotate(90deg)}
+  .wallet-modal-wrap{position:relative}
+  .wallet-divider{display:flex;align-items:center;gap:.75rem;margin:1.25rem 0;color:var(--muted);font-size:.75rem;font-weight:600}
+  .wallet-divider::before,.wallet-divider::after{content:'';flex:1;height:2px;background:var(--card-tint);border-radius:2px}
+
+  @media (max-width:900px){
+    .dashboard-layout{flex-direction:column}
+    .sidebar{width:100%;height:auto;position:static;display:flex;overflow-x:auto;gap:.5rem;padding:1rem}
+    .sidebar-item{flex-shrink:0;margin-bottom:0}
+    .sidebar-divider,.sidebar-wallet{display:none}
+    .nav-links{display:none}
+    .form-row{grid-template-columns:1fr}
+    .portfolio-row{grid-template-columns:1fr 1fr}
+    .chart-container{grid-template-columns:1fr}
+    .chart-box .chart{height:280px}
+  }
+</style>
+</head>
+<body>
+
+<!-- VIDEO BACKGROUND (CLEAR) -->
+<video class="video-bg" autoplay loop muted playsinline onerror="this.style.display='none'">
+  <source src="animasi.mp4" type="video/mp4">
+</video>
+<div class="video-overlay"></div>
+<div class="bg-gradient"></div>
+<div class="grid-overlay"></div>
+<div id="particles"></div>
+<div class="scroll-progress" id="scrollProgress"></div>
+
+<!-- ENTRY -->
+<div id="entryScreen">
+  <div class="entry-logo-wrap">
+    <div class="entry-logo-ring2"></div>
+    <div class="entry-logo-ring"></div>
+    <img src="logo.png" alt="FairDot Logo" class="entry-logo" onerror="this.style.display='none'">
+  </div>
+  <h1 class="entry-title">FairDot</h1>
+  <p class="entry-subtitle">Fair & Protected Memecoin Protocol — Launch, trade, and grow together. No dumps. No rugs.</p>
+  <button class="enter-btn" id="enterBtn">Enter FairDot</button>
+  <div class="entry-footer">
+    <span class="portaldot-badge">
+      <img src="portaldot-logo.png" alt="Portaldot" onerror="this.style.display='none'">
+      Built on Portaldot V3 EVM · Chain ID 420420777
+    </span>
+  </div>
+</div>
+
+<!-- NAVBAR -->
+<nav id="navbar" style="display:none;">
+  <div class="nav-logo">
+    <img src="logo.png" alt="FairDot" onerror="this.style.display='none'">
+    <span>FairDot</span>
+  </div>
+  <ul class="nav-links">
+    <li><a href="#features" onclick="showLanding()">Features</a></li>
+    <li><a href="#charts" onclick="showLanding()">Analytics</a></li>
+    <li><a href="#architecture" onclick="showLanding()">Architecture</a></li>
+    <li><a href="#how" onclick="showLanding()">How It Works</a></li>
+  </ul>
+  <button class="connect-btn" id="connectBtnNav">Connect Wallet</button>
+</nav>
+
+<!-- WALLET MODAL -->
+<div class="wallet-modal-overlay" id="walletModal">
+  <div class="wallet-modal wallet-modal-wrap">
+    <button class="wallet-close" onclick="closeWalletModal()">&times;</button>
+    <h3>Connect Wallet</h3>
+    <p>Choose your preferred wallet to connect to FairDot</p>
+    <div class="wallet-option" data-wallet="metamask">
+      <div class="wallet-icon" style="background:linear-gradient(135deg,#FFF7ED,#FED7AA)">🦊</div>
+      <div class="wallet-info"><div class="name">MetaMask</div><div class="desc">Most popular EVM wallet</div></div>
+      <span class="wallet-tag evm">EVM</span>
+    </div>
+    <div class="wallet-option" data-wallet="subwallet-evm">
+      <div class="wallet-icon" style="background:linear-gradient(135deg,#CFFAFE,#A5F3FC)">🔵</div>
+      <div class="wallet-info"><div class="name">SubWallet (EVM Mode)</div><div class="desc">Multi-chain wallet — EVM account</div></div>
+      <span class="wallet-tag evm">EVM</span>
+    </div>
+    <div class="wallet-divider">Substrate Wallets (Native)</div>
+    <div class="wallet-option" data-wallet="polkadotjs">
+      <div class="wallet-icon" style="background:linear-gradient(135deg,#FCE7F3,#FBCFE8)">⚫</div>
+      <div class="wallet-info"><div class="name">Polkadot.js</div><div class="desc">Polkadot native extension</div></div>
+      <span class="wallet-tag substrate">Substrate</span>
+    </div>
+    <div class="wallet-option" data-wallet="subwallet-sub">
+      <div class="wallet-icon" style="background:linear-gradient(135deg,#CFFAFE,#A5F3FC)">🔵</div>
+      <div class="wallet-info"><div class="name">SubWallet (Substrate)</div><div class="desc">Multi-chain wallet — Substrate account</div></div>
+      <span class="wallet-tag substrate">Substrate</span>
+    </div>
+    <div class="wallet-option" data-wallet="portaldot">
+      <div class="wallet-icon" style="background:linear-gradient(135deg,#EDE9FE,#DDD6FE)">🟣</div>
+      <div class="wallet-info"><div class="name">Portaldot Wallet</div><div class="desc">Official Portaldot native wallet</div></div>
+      <span class="wallet-tag substrate">Substrate</span>
+    </div>
+    <div class="wallet-option" data-wallet="talisman">
+      <div class="wallet-icon" style="background:linear-gradient(135deg,#D1FAE5,#A7F3D0)">🟢</div>
+      <div class="wallet-info"><div class="name">Talisman</div><div class="desc">Substrate & EVM compatible</div></div>
+      <span class="wallet-tag substrate">Substrate</span>
+    </div>
+    <div class="wallet-option disabled">
+      <div class="wallet-icon" style="background:linear-gradient(135deg,#F1F5F9,#E2E8F0)">🔗</div>
+      <div class="wallet-info"><div class="name">WalletConnect</div><div class="desc">Coming soon</div></div>
+      <span class="wallet-tag" style="background:#F1F5F9;color:#64748B">Soon</span>
+    </div>
+  </div>
+</div>
+
+<!-- LANDING -->
+<div id="landingPage" style="display:none;">
+  <section class="hero">
+    <div class="hero-content">
+      <div class="hero-badge">PORTALDOT HACKER HOUSE 2026 · ECOSYSTEM DAPPS</div>
+      <h1>Launch & Trade Memecoins <span class="gradient">Without Getting Rekt</span></h1>
+      <p>FairDot is a protection protocol. Launch your own memecoin with built-in anti-dump protection, or trade protected tokens. Your principal is always yours.</p>
+      <div class="hero-actions">
+        <button class="btn-primary" id="connectBtnHero">Launch App</button>
+        <button class="btn-secondary" onclick="document.getElementById('features').scrollIntoView({behavior:'smooth'})">Learn More</button>
+      </div>
+    </div>
+  </section>
+
+  <section style="padding:2rem 2rem 4rem;">
+    <div class="stats">
+      <div class="stat-card reveal"><div class="stat-number" data-target="5" data-suffix="x">0</div><div class="stat-label">Protection Trigger</div></div>
+      <div class="stat-card reveal"><div class="stat-number" data-target="10" data-suffix="%">0</div><div class="stat-label">Daily Profit Release</div></div>
+      <div class="stat-card reveal"><div class="stat-number" data-target="10" data-suffix="d">0</div><div class="stat-label">Full Unlock Period</div></div>
+      <div class="stat-card reveal"><div class="stat-number" data-target="24" data-suffix="h">0</div><div class="stat-label">VWAP Window</div></div>
+    </div>
+  </section>
+
+  <section id="features">
+    <h2 class="section-title reveal">Why <span class="gradient">FairDot</span>?</h2>
+    <p class="section-subtitle reveal">A protocol, not just a token. Any memecoin can integrate FairDot protection.</p>
+    <div class="feature-grid">
+      <div class="feature-card reveal"><div class="feature-icon">🚀</div><h3>Launch Your Meme</h3><p>Deploy your own memecoin in seconds with FairDot protection baked in. No code needed — just fill the form.</p></div>
+      <div class="feature-card reveal"><div class="feature-icon">🔒</div><h3>Principal Always Free</h3><p>Your initial investment is 100% withdrawable at any time. No locks, no delays, no excuses.</p></div>
+      <div class="feature-card reveal"><div class="feature-icon">📈</div><h3>Gradual Profit Release</h3><p>Profits above 5x release 10% per day over 10 days. Nobody can dump all at once.</p></div>
+      <div class="feature-card reveal"><div class="feature-icon">🐋</div><h3>Whale Staggering</h3><p>Large withdrawals (>10% liquidity) auto-split into installments. Pool never drains in one shot.</p></div>
+      <div class="feature-card reveal"><div class="feature-icon">🔗</div><h3>Entry Price Inheritance</h3><p>Transfer tokens? Your entry price moves with them. No resetting by switching wallets.</p></div>
+      <div class="feature-card reveal"><div class="feature-icon">🛡️</div><h3>Rugpull-Proof</h3><p>Minting permanently disableable, liquidity locked, creators subject to same rules as everyone.</p></div>
+    </div>
+  </section>
+
+  <section class="charts-section" id="charts">
+    <h2 class="section-title reveal">Price <span class="gradient">Stability</span> Comparison</h2>
+    <p class="section-subtitle reveal">See how FairDot prevents instant dumps and keeps price stable</p>
+    <div class="chart-container reveal">
+      <div class="chart-box"><h3>Price Stability: Normal vs FairDot</h3><div class="chart" id="priceChart"></div></div>
+      <div class="chart-box"><h3>Token Distribution</h3><div class="chart" id="tokenChart"></div></div>
+    </div>
+    <div class="comparison reveal">
+      <h3 style="text-align:center;margin-bottom:2rem;color:var(--text)">Market Crash Resistance</h3>
+      <div class="comp-row"><div class="comp-label"><span>Normal Memecoin (survival after 10x)</span><span style="color:var(--red-dark)">~15%</span></div><div class="comp-bar-wrap"><div class="comp-bar normal" data-width="15">15%</div></div></div>
+      <div class="comp-row"><div class="comp-label"><span>FairDot (survival after 10x)</span><span style="color:var(--primary)">~85%</span></div><div class="comp-bar-wrap"><div class="comp-bar fairdot" data-width="85">85%</div></div></div>
+      <div class="comp-row"><div class="comp-label"><span>Normal Memecoin (avg. profit realized)</span><span style="color:var(--red-dark)">~2.2x</span></div><div class="comp-bar-wrap"><div class="comp-bar normal" data-width="22">2.2x</div></div></div>
+      <div class="comp-row"><div class="comp-label"><span>FairDot (avg. profit realized)</span><span style="color:var(--primary)">~7.8x</span></div><div class="comp-bar-wrap"><div class="comp-bar fairdot" data-width="78">7.8x</div></div></div>
+    </div>
+  </section>
+
+  <section id="architecture">
+    <h2 class="section-title reveal">System <span class="gradient">Architecture</span></h2>
+    <p class="section-subtitle reveal">How FairDot integrates with Portaldot V3 EVM</p>
+    <div class="arch-diagram reveal">
+      <svg viewBox="0 0 800 500" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#6D5BD0"/><stop offset="100%" style="stop-color:#22D3EE"/></linearGradient>
+          <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#22D3EE"/><stop offset="100%" style="stop-color:#FF8FB1"/></linearGradient>
+          <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#6D5BD0" flood-opacity="0.25"/></filter>
+          <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#6D5BD0"/></marker>
+        </defs>
+        <rect x="300" y="20" width="200" height="60" rx="20" fill="url(#grad1)" filter="url(#softShadow)"/>
+        <text x="400" y="45" text-anchor="middle" fill="white" font-size="14" font-weight="bold" font-family="sans-serif">USER (Wallet)</text>
+        <text x="400" y="65" text-anchor="middle" fill="rgba(255,255,255,0.9)" font-size="11" font-family="sans-serif">MetaMask / SubWallet / Polkadot.js</text>
+        <line x1="400" y1="80" x2="400" y2="120" stroke="#6D5BD0" stroke-width="3" marker-end="url(#arrow)"/>
+        <rect x="250" y="120" width="300" height="70" rx="20" fill="url(#grad2)" filter="url(#softShadow)"/>
+        <text x="400" y="148" text-anchor="middle" fill="white" font-size="14" font-weight="bold" font-family="sans-serif">LIQUIDITY POOL (DEX)</text>
+        <text x="400" y="170" text-anchor="middle" fill="rgba(255,255,255,0.9)" font-size="11" font-family="sans-serif">recordBuy · recordPrice · validateWithdraw</text>
+        <line x1="400" y1="190" x2="400" y2="230" stroke="#6D5BD0" stroke-width="3" marker-end="url(#arrow)"/>
+        <rect x="150" y="230" width="500" height="120" rx="24" fill="#FFFFFF" stroke="#E0D4FF" stroke-width="3" filter="url(#softShadow)"/>
+        <text x="400" y="260" text-anchor="middle" fill="#6D5BD0" font-size="16" font-weight="bold" font-family="sans-serif">FAIRDOT SMART CONTRACT</text>
+        <rect x="170" y="275" width="140" height="55" rx="14" fill="#EDE9FE" stroke="#C4B5FD" stroke-width="2"/>
+        <text x="240" y="295" text-anchor="middle" fill="#4C1D95" font-size="11" font-weight="bold" font-family="sans-serif">User Position</text>
+        <text x="240" y="312" text-anchor="middle" fill="#7C3AED" font-size="9" font-family="sans-serif">avgEntry · invested</text>
+        <rect x="330" y="275" width="140" height="55" rx="14" fill="#CFFAFE" stroke="#67E8F9" stroke-width="2"/>
+        <text x="400" y="295" text-anchor="middle" fill="#155E75" font-size="11" font-weight="bold" font-family="sans-serif">Price History</text>
+        <text x="400" y="312" text-anchor="middle" fill="#0E7490" font-size="9" font-family="sans-serif">24h VWAP Engine</text>
+        <rect x="490" y="275" width="140" height="55" rx="14" fill="#FFE0EC" stroke="#F9A8D4" stroke-width="2"/>
+        <text x="560" y="295" text-anchor="middle" fill="#9D174D" font-size="11" font-weight="bold" font-family="sans-serif">Stagger Engine</text>
+        <text x="560" y="312" text-anchor="middle" fill="#BE185D" font-size="9" font-family="sans-serif">Large Withdrawals</text>
+        <line x1="400" y1="350" x2="400" y2="390" stroke="#6D5BD0" stroke-width="3" marker-end="url(#arrow)"/>
+        <rect x="250" y="390" width="300" height="70" rx="20" fill="url(#grad1)" filter="url(#softShadow)"/>
+        <text x="400" y="418" text-anchor="middle" fill="white" font-size="14" font-weight="bold" font-family="sans-serif">PORTALDOT V3 EVM</text>
+        <text x="400" y="440" text-anchor="middle" fill="rgba(255,255,255,0.9)" font-size="11" font-family="sans-serif">Chain ID: 420420777 · tPOTv3 Gas</text>
+      </svg>
+    </div>
+  </section>
+
+  <section class="how-section" id="how">
+    <h2 class="section-title reveal">How It <span class="gradient">Works</span></h2>
+    <p class="section-subtitle reveal">Simple. Fair. Transparent.</p>
+    <div class="timeline">
+      <div class="timeline-item reveal"><div class="timeline-dot">1</div><h4>Launch or Join</h4><p>Deploy your memecoin with FairDot protection, or browse and trade existing protected tokens on the platform.</p></div>
+      <div class="timeline-item reveal"><div class="timeline-dot">2</div><h4>Buy & Hold</h4><p>Your weighted-average entry price is recorded on-chain. Every buy updates your position transparently.</p></div>
+      <div class="timeline-item reveal"><div class="timeline-dot">3</div><h4>Price Moons 5x+</h4><p>Protection mode activates. Principal stays 100% free — only profit is scheduled for gradual release.</p></div>
+      <div class="timeline-item reveal"><div class="timeline-dot">4</div><h4>Withdraw Anytime</h4><p>Principal always free. Released profit always free. Large withdrawals staggered automatically.</p></div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="footer-links">
+      <a href="https://github.com/yukensimi/fairdot" target="_blank">GitHub</a>
+      <a href="https://dorahacks.io/hackathon/2362/detail" target="_blank">DoraHacks</a>
+      <a href="https://node-console.portaldot.dev/" target="_blank">Portaldot Explorer</a>
+      <a href="https://discord.gg/Vt9VpG6Ed" target="_blank">Discord</a>
+    </div>
+    <p>FairDot — Fair & Protected Memecoin Protocol</p>
+    <p style="margin-top:.5rem;font-size:.8rem;">Built for Portaldot Hacker House 2026 · Not financial advice · DYOR</p>
+    <div class="footer-badge">
+      <img src="portaldot-logo.png" alt="Portaldot" onerror="this.style.display='none'">
+      <span>Powered by Portaldot V3 EVM</span>
+    </div>
+  </footer>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dashboard">
+  <div class="dashboard-layout">
+    <aside class="sidebar">
+      <div class="sidebar-item active" data-tab="explore"><span class="icon">🔍</span> Explore</div>
+      <div class="sidebar-item" data-tab="create"><span class="icon">🚀</span> Create Meme</div>
+      <div class="sidebar-item" data-tab="trade"><span class="icon">💱</span> Trade Meme</div>
+      <div class="sidebar-item" data-tab="portfolio"><span class="icon">📊</span> My Portfolio</div>
+      <div class="sidebar-divider"></div>
+      <div class="sidebar-wallet">
+        <div class="wallet-type" id="walletTypeTag">Not Connected</div>
+        <div>Connected Wallet</div>
+        <div class="addr" id="sidebarAddr">—</div>
+        <div class="balance">301.76 tPOTv3</div>
+      </div>
+    </aside>
+    <main class="dashboard-main">
+      <div class="tab-content active" id="tab-explore">
+        <div class="dash-header"><h2>Explore Memecoins</h2><p>Discover protected memecoins on FairDot. All tokens listed have anti-dump protection enabled.</p></div>
+        <div class="mock-notice">Demo data — live on-chain data coming after contract deployment.</div>
+        <div class="token-grid" id="tokenGrid"></div>
+      </div>
+      <div class="tab-content" id="tab-create">
+        <div class="dash-header"><h2>Create Your Memecoin</h2><p>Launch a new memecoin with FairDot protection built-in. Fill in the details below.</p></div>
+        <div class="mock-notice">Demo mode — actual deployment requires contract integration (coming soon).</div>
+        <div class="dash-card">
+          <h3>Token Details</h3>
+          <div class="form-row">
+            <div class="form-group"><label>Token Name</label><input type="text" id="tokenName" placeholder="e.g. DogeMoon"></div>
+            <div class="form-group"><label>Token Symbol</label><input type="text" id="tokenSymbol" placeholder="e.g. $DMOON"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>Total Supply</label><input type="number" id="tokenSupply" value="1000000000"><div class="form-hint">Recommended: 1,000,000,000 (1B)</div></div>
+            <div class="form-group"><label>Initial Liquidity (tPOTv3)</label><input type="number" id="tokenLiquidity" value="10" step="0.1"><div class="form-hint">Minimum: 1 tPOTv3</div></div>
+          </div>
+          <div class="form-group"><label>Description</label><textarea id="tokenDesc" rows="3" placeholder="Tell us about your meme..."></textarea></div>
+          <div class="form-group">
+            <label>Protection Settings (FairDot built-in)</label>
+            <div style="background:var(--card-tint);border-radius:var(--radius-sm);padding:1.1rem;font-size:.85rem;color:var(--text-soft);line-height:1.9;">
+              <div>✅ Protection trigger: <strong style="color:var(--primary)">5x entry price</strong></div>
+              <div>✅ Profit release: <strong style="color:var(--primary)">10% per day / 10 days</strong></div>
+              <div>✅ Large withdrawal stagger: <strong style="color:var(--primary)">Auto-enabled</strong></div>
+              <div>✅ Entry price inheritance: <strong style="color:var(--primary)">Enabled</strong></div>
+              <div>✅ Minting: <strong style="color:var(--green-dark)">Permanently disabled after launch</strong></div>
+            </div>
+          </div>
+          <button class="btn-primary" style="width:100%;margin-top:1rem;" onclick="createToken()">🚀 Deploy Memecoin</button>
+        </div>
+      </div>
+      <div class="tab-content" id="tab-trade">
+        <div class="dash-header"><h2>Trade Memecoin</h2><p>Buy or sell protected tokens. All trades go through FairDot protection.</p></div>
+        <div class="mock-notice">Demo mode — actual trading requires contract deployment.</div>
+        <div class="dash-card">
+          <div class="form-group"><label>Select Token</label>
+            <select id="tradeToken">
+              <option value="PEPEX">$PEPEX — PepeXtreme</option>
+              <option value="DOGE">$DOGE — DogeMoon</option>
+              <option value="SHIBX">$SHIBX — ShibaXL</option>
+              <option value="MOON">$MOON — MoonRocket</option>
+            </select>
+          </div>
+          <div class="trade-tabs">
+            <button class="trade-tab buy active" id="buyTab" onclick="setTradeSide('buy')">BUY</button>
+            <button class="trade-tab sell" id="sellTab" onclick="setTradeSide('sell')">SELL</button>
+          </div>
+          <div class="form-group"><label>Amount (tPOTv3)</label><input type="number" id="tradeAmount" placeholder="0.0" step="0.01" oninput="updateTradeSummary()"></div>
+          <div class="trade-summary" id="tradeSummary">
+            <div class="row"><span class="label">You pay</span><span class="value" id="sumPay">0 tPOTv3</span></div>
+            <div class="row"><span class="label">You receive</span><span class="value" id="sumReceive">0 tokens</span></div>
+            <div class="row"><span class="label">Price impact</span><span class="value" style="color:var(--green-dark)">&lt; 0.5%</span></div>
+            <div class="row"><span class="label">Protection status</span><span class="value" style="color:var(--primary)">Active</span></div>
+          </div>
+          <button class="btn-primary" style="width:100%;margin-top:1rem;" id="tradeBtn" onclick="executeTrade()">Confirm Buy</button>
+        </div>
+      </div>
+      <div class="tab-content" id="tab-portfolio">
+        <div class="dash-header"><h2>My Portfolio</h2><p>Track your positions, locked profit, and release schedule.</p></div>
+        <div class="mock-notice">Demo data — connect to live contract for real positions.</div>
+        <div class="dash-card">
+          <h3>Your Positions</h3>
+          <div class="portfolio-row header"><div>Token</div><div>Entry Price</div><div>Current</div><div>Status</div></div>
+          <div class="portfolio-row">
+            <div><strong style="color:var(--text)">$PEPEX</strong><div style="font-size:.75rem;color:var(--muted)">PepeXtreme</div></div>
+            <div style="font-family:'Space Mono',monospace;color:var(--text-soft)">$0.001</div>
+            <div style="font-family:'Space Mono',monospace;color:var(--green-dark);font-weight:700">$0.008</div>
+            <div><span class="badge-protected">Protected</span><div class="progress-bar"><div class="progress-fill" style="width:40%"></div></div><div style="font-size:.7rem;color:var(--muted);margin-top:.2rem;">40% released · 6d left</div></div>
+          </div>
+          <div class="portfolio-row">
+            <div><strong style="color:var(--text)">$DOGE</strong><div style="font-size:.75rem;color:var(--muted)">DogeMoon</div></div>
+            <div style="font-family:'Space Mono',monospace;color:var(--text-soft)">$0.05</div>
+            <div style="font-family:'Space Mono',monospace;color:var(--green-dark);font-weight:700">$0.12</div>
+            <div><span style="color:var(--green-dark);font-size:.8rem;font-weight:700;">Normal Mode</span><div style="font-size:.7rem;color:var(--muted);margin-top:.2rem;">Ratio 2.4x — fully withdrawable</div></div>
+          </div>
+          <div class="portfolio-row">
+            <div><strong style="color:var(--text)">$MOON</strong><div style="font-size:.75rem;color:var(--muted)">MoonRocket</div></div>
+            <div style="font-family:'Space Mono',monospace;color:var(--text-soft)">$1.00</div>
+            <div style="font-family:'Space Mono',monospace;color:var(--red-dark);font-weight:700">$0.85</div>
+            <div><span style="color:var(--muted);font-size:.8rem;font-weight:600;">Below Entry</span><div style="font-size:.7rem;color:var(--muted);margin-top:.2rem;">Principal fully withdrawable</div></div>
+          </div>
+        </div>
+        <div class="dash-card">
+          <h3>Release Schedule</h3>
+          <div style="font-size:.9rem;color:var(--text-soft);line-height:2.1;">
+            <div>Next release: <strong style="color:var(--primary)">Day 5 — 10% of $PEPEX profit</strong></div>
+            <div>Total locked profit: <strong style="color:var(--text)">$2,450 worth</strong></div>
+            <div>Already released: <strong style="color:var(--green-dark)">$1,600 worth (40%)</strong></div>
+            <div>Estimated full unlock: <strong style="color:var(--text)">6 days from now</strong></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  var pc=document.getElementById('particles');
+  var colors=['#6D5BD0','#22D3EE','#A78BFA','#FF8FB1','#34D399'];
+  for(var i=0;i<30;i++){var p=document.createElement('div');p.className='particle';var s=Math.random()*8+3;p.style.width=s+'px';p.style.height=s+'px';p.style.left=Math.random()*100+'%';p.style.top=Math.random()*100+'%';p.style.background=colors[Math.floor(Math.random()*colors.length)];p.style.animationDelay=Math.random()*8+'s';p.style.animationDuration=(Math.random()*6+6)+'s';pc.appendChild(p);}
+
+  var sp=document.getElementById('scrollProgress');
+  window.addEventListener('scroll',function(){var h=document.documentElement;sp.style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+'%';});
+
+  var reveals=document.querySelectorAll('.reveal');
+  var ro=new IntersectionObserver(function(entries){entries.forEach(function(e){if(e.isIntersecting){e.target.classList.add('visible');var c=e.target.querySelector('.stat-number');if(c&&!c.dataset.done){c.dataset.done='1';animateCounter(c);}var bars=e.target.querySelectorAll('.comp-bar');bars.forEach(function(b){b.style.width=b.dataset.width+'%';});}});},{threshold:0.15});
+  reveals.forEach(function(el){ro.observe(el);});
+  function animateCounter(el){var target=parseInt(el.dataset.target);var suffix=el.dataset.suffix||'';var start=performance.now();function tick(now){var p=Math.min(1,(now-start)/1500);el.textContent=Math.round(target*(1-Math.pow(1-p,3)))+suffix;if(p<1)requestAnimationFrame(tick);}requestAnimationFrame(tick);}
+
+  var toast=document.getElementById('toast');var toastT;
+  function showToast(msg){toast.textContent=msg;toast.classList.add('visible');clearTimeout(toastT);toastT=setTimeout(function(){toast.classList.remove('visible');},3500);}
+
+  var entryScreen=document.getElementById('entryScreen');
+  var navbar=document.getElementById('navbar');
+  var landingPage=document.getElementById('landingPage');
+  var dashboard=document.getElementById('dashboard');
+  var chartsInit=false;
+
+  document.getElementById('enterBtn').addEventListener('click',function(){
+    entryScreen.classList.add('hidden');
+    navbar.style.display='flex';
+    landingPage.style.display='block';
+    setTimeout(initCharts,800);
+  });
+
+  window.showLanding=function(){landingPage.style.display='block';dashboard.classList.remove('active');};
+  function showDashboard(){landingPage.style.display='none';dashboard.classList.add('active');window.scrollTo(0,0);}
+
+  function initCharts(){
+    if(chartsInit||typeof echarts==='undefined')return;
+    chartsInit=true;
+    var priceChart=echarts.init(document.getElementById('priceChart'));
+    var days=['Day 0','Day 1','Day 2','Day 3','Day 4','Day 5','Day 6','Day 7','Day 8','Day 9','Day 10'];
+    priceChart.setOption({
+      backgroundColor:'transparent',
+      tooltip:{trigger:'axis',backgroundColor:'#FFFFFF',borderColor:'#E0D4FF',textStyle:{color:'#1E1B4B'}},
+      legend:{data:['Normal Memecoin','FairDot'],textStyle:{color:'#4A4575'},top:0},
+      grid:{left:'10%',right:'5%',bottom:'10%',top:'20%'},
+      xAxis:{type:'category',data:days,axisLine:{lineStyle:{color:'#E0D4FF'}},axisLabel:{color:'#8B85B0',fontSize:10}},
+      yAxis:{type:'value',name:'Price (x)',nameTextStyle:{color:'#8B85B0'},axisLine:{lineStyle:{color:'#E0D4FF'}},axisLabel:{color:'#8B85B0'},splitLine:{lineStyle:{color:'#F0EBFF'}}},
+      series:[
+        {name:'Normal Memecoin',type:'line',data:[1,3,5,8,10,4,2,1.5,1.2,1.1,1.05],smooth:true,lineStyle:{color:'#F87171',width:3},itemStyle:{color:'#F87171'},areaStyle:{color:{type:'linear',x:0,y:0,x2:0,y2:1,colorStops:[{offset:0,color:'rgba(248,113,113,0.25)'},{offset:1,color:'rgba(248,113,113,0)'}]}}},
+        {name:'FairDot',type:'line',data:[1,3,5,8,10,9.5,9,8.8,8.5,8.3,8.2],smooth:true,lineStyle:{color:'#6D5BD0',width:3},itemStyle:{color:'#6D5BD0'},areaStyle:{color:{type:'linear',x:0,y:0,x2:0,y2:1,colorStops:[{offset:0,color:'rgba(109,91,208,0.25)'},{offset:1,color:'rgba(109,91,208,0)'}]}}}
+      ]
+    });
+    var tokenChart=echarts.init(document.getElementById('tokenChart'));
+    tokenChart.setOption({
+      backgroundColor:'transparent',
+      tooltip:{trigger:'item',backgroundColor:'#FFFFFF',borderColor:'#E0D4FF',textStyle:{color:'#1E1B4B'}},
+      legend:{orient:'vertical',right:'5%',top:'center',textStyle:{color:'#4A4575',fontSize:11}},
+      series:[{type:'pie',radius:['40%','70%'],center:['35%','50%'],avoidLabelOverlap:true,itemStyle:{borderRadius:10,borderColor:'#FFFFFF',borderWidth:4},label:{show:false},emphasis:{label:{show:true,fontSize:14,fontWeight:'bold',color:'#1E1B4B'}},data:[
+        {value:50,name:'Liquidity Pool',itemStyle:{color:'#6D5BD0'}},
+        {value:20,name:'Community Rewards',itemStyle:{color:'#22D3EE'}},
+        {value:15,name:'Team (Vested)',itemStyle:{color:'#FF8FB1'}},
+        {value:10,name:'Development',itemStyle:{color:'#A78BFA'}},
+        {value:5,name:'Marketing',itemStyle:{color:'#34D399'}}
+      ]}]
+    });
+    window.addEventListener('resize',function(){priceChart.resize();tokenChart.resize();});
+  }
+
+  var walletModal=document.getElementById('walletModal');
+  var connectedAddress=null;var walletType=null;
+  window.openWalletModal=function(){walletModal.classList.add('visible');};
+  window.closeWalletModal=function(){walletModal.classList.remove('visible');};
+  walletModal.addEventListener('click',function(e){if(e.target===walletModal)closeWalletModal();});
+  document.getElementById('connectBtnNav').addEventListener('click',openWalletModal);
+  document.getElementById('connectBtnHero').addEventListener('click',openWalletModal);
+
+  var PORTALDOT_EVM={chainId:'0x18F6C29',chainName:'Portaldot V3 Testnet',rpcUrl:'https://test-evm-rpc-v3.portaldot.dev',symbol:'tPOTv3'};
+
+  async function connectEVM(walletName){
+    closeWalletModal();
+    try{
+      var provider=window.ethereum;
+      if(walletName==='subwallet-evm'&&window.subwallet)provider=window.subwallet;
+      if(!provider){showToast(walletName==='metamask'?'MetaMask not installed!':'SubWallet not detected!');return;}
+      var accounts=await provider.request({method:'eth_requestAccounts'});
+      connectedAddress=accounts[0];walletType=walletName;
+      try{await provider.request({method:'wallet_switchEthereumChain',params:[{chainId:PORTALDOT_EVM.chainId}]});}
+      catch(se){if(se.code===4902){await provider.request({method:'wallet_addEthereumChain',params:[{chainId:PORTALDOT_EVM.chainId,chainName:PORTALDOT_EVM.chainName,nativeCurrency:{name:PORTALDOT_EVM.symbol,symbol:PORTALDOT_EVM.symbol,decimals:18},rpcUrls:[PORTALDOT_EVM.rpcUrl],blockExplorerUrls:['https://node-console.portaldot.dev/']}]});}}
+      updateWalletUI();
+      showToast('Connected via '+(walletName==='metamask'?'MetaMask':'SubWallet')+'! 🎉');
+      setTimeout(showDashboard,800);
+    }catch(err){if(err.code===4001)showToast('Connection rejected.');else showToast('Error: '+err.message);}
+  }
+
+  async function connectSubstrate(walletName){
+    closeWalletModal();
+    try{
+      console.log('=== FairDot Wallet Debug ===');
+      console.log('window.injectedWeb3:',window.injectedWeb3);
+      var injected=window.injectedWeb3||{};var keys=Object.keys(injected);
+      console.log('Available injected wallets:',keys);
+      if(keys.length===0){showToast('No Substrate wallet detected! Click extension icon → Allow access on this site → Refresh.');return;}
+      var nameMap={'polkadotjs':['polkadot-js','polkadotjs','polkadot'],'subwallet-sub':['subwallet-js','subwallet'],'portaldot':['portaldot','portaldot-wallet','portaldotjs'],'talisman':['talisman','talisman-js']};
+      var candidates=nameMap[walletName]||[walletName];var injectorKey=null;
+      for(var i=0;i<candidates.length;i++){if(injected[candidates[i]]){injectorKey=candidates[i];break;}}
+      if(!injectorKey)injectorKey=keys[0];
+      console.log('Using injector:',injectorKey);
+      var injector=await injected[injectorKey].enable('FairDot');
+      var accounts=await injector.accounts.get();
+      console.log('Accounts:',accounts.length,accounts);
+      if(accounts.length===0){showToast('No accounts found in '+injectorKey+'! Add an account first.');return;}
+      connectedAddress=accounts[0].address;walletType=walletName;
+      updateWalletUI();
+      showToast('Connected via '+injectorKey+'! 🎉');
+      setTimeout(showDashboard,800);
+    }catch(err){console.error('Substrate error:',err);showToast('Connection failed: '+(err.message||'User rejected or wallet locked'));}
+  }
+
+  document.querySelectorAll('.wallet-option[data-wallet]').forEach(function(opt){
+    opt.addEventListener('click',function(){var w=opt.dataset.wallet;if(w==='metamask'||w==='subwallet-evm')connectEVM(w);else connectSubstrate(w);});
+  });
+
+  function updateWalletUI(){
+    var shortAddr=connectedAddress.length>20?connectedAddress.slice(0,6)+'...'+connectedAddress.slice(-4):connectedAddress;
+    document.getElementById('connectBtnNav').textContent=shortAddr;
+    document.getElementById('connectBtnNav').classList.add('connected');
+    document.getElementById('sidebarAddr').textContent=connectedAddress;
+    var typeNames={'metamask':'MetaMask (EVM)','subwallet-evm':'SubWallet (EVM)','subwallet-sub':'SubWallet (Substrate)','polkadotjs':'Polkadot.js','portaldot':'Portaldot Wallet','talisman':'Talisman'};
+    document.getElementById('walletTypeTag').textContent=typeNames[walletType]||'Connected';
+  }
+
+  if(typeof window.ethereum!=='undefined'){window.ethereum.on('accountsChanged',function(accs){if(accs.length===0){connectedAddress=null;document.getElementById('connectBtnNav').textContent='Connect Wallet';document.getElementById('connectBtnNav').classList.remove('connected');}});}
+
+  function detectWallets(){var injected=window.injectedWeb3||{};var keys=Object.keys(injected);console.log('🔍 FairDot: Detected injected wallets:',keys);console.log('🔍 FairDot: window.ethereum:',!!window.ethereum);}
+  setTimeout(detectWallets,500);setTimeout(detectWallets,1500);setTimeout(detectWallets,3000);
+
+  document.querySelectorAll('.sidebar-item').forEach(function(item){
+    item.addEventListener('click',function(){
+      document.querySelectorAll('.sidebar-item').forEach(function(i){i.classList.remove('active');});
+      item.classList.add('active');
+      var tab=item.dataset.tab;
+      document.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});
+      document.getElementById('tab-'+tab).classList.add('active');
+    });
+  });
+
+  var tokens=[
+    {name:'PepeXtreme',symbol:'PEPEX',price:'$0.008',change:'+342%',mcap:'$1.2M',emoji:'🐸',color:'#34D399'},
+    {name:'DogeMoon',symbol:'DOGE',price:'$0.12',change:'+89%',mcap:'$890K',emoji:'🐕',color:'#FBBF24'},
+    {name:'ShibaXL',symbol:'SHIBX',price:'$0.0004',change:'+156%',mcap:'$2.1M',emoji:'🐕‍🦺',color:'#F87171'},
+    {name:'MoonRocket',symbol:'MOON',price:'$0.85',change:'-15%',mcap:'$450K',emoji:'🚀',color:'#6D5BD0'},
+    {name:'CatInu',symbol:'CATI',price:'$0.03',change:'+67%',mcap:'$320K',emoji:'🐱',color:'#22D3EE'},
+    {name:'WojakFi',symbol:'WOJ',price:'$0.002',change:'+512%',mcap:'$3.4M',emoji:'😢',color:'#FF8FB1'}
+  ];
+  var tokenGrid=document.getElementById('tokenGrid');
+  tokens.forEach(function(t){
+    var card=document.createElement('div');card.className='token-card';
+    var cc=t.change.startsWith('+')?'price-up':'price-down';
+    card.innerHTML='<div class="token-header"><div class="token-avatar" style="background:linear-gradient(135deg,'+t.color+','+t.color+'AA)">'+t.emoji+'</div><div><div class="token-name">'+t.name+' <span class="badge-protected">Protected</span></div><div class="token-symbol">$'+t.symbol+'</div></div></div><div class="token-stats"><span class="label">Price</span><span class="value">'+t.price+'</span></div><div class="token-stats"><span class="label">24h Change</span><span class="value '+cc+'">'+t.change+'</span></div><div class="token-stats"><span class="label">Market Cap</span><span class="value">'+t.mcap+'</span></div>';
+    card.addEventListener('click',function(){
+      document.querySelector('.sidebar-item[data-tab="trade"]').click();
+      var sel=document.getElementById('tradeToken');
+      var val=t.symbol==='PEPEX'?'PEPEX':(t.symbol==='DOGE'?'DOGE':(t.symbol==='SHIBX'?'SHIBX':'MOON'));
+      if(sel.querySelector('option[value="'+val+'"]'))sel.value=val;
+      showToast('Selected $'+t.symbol+' — go to Trade tab');
+    });
+    tokenGrid.appendChild(card);
+  });
+
+  var tradeSide='buy';
+  window.setTradeSide=function(side){
+    tradeSide=side;
+    document.getElementById('buyTab').classList.toggle('active',side==='buy');
+    document.getElementById('sellTab').classList.toggle('active',side==='sell');
+    document.getElementById('tradeBtn').textContent=side==='buy'?'Confirm Buy':'Confirm Sell';
+    document.getElementById('tradeBtn').style.background=side==='buy'?'linear-gradient(135deg,#34D399,#10B981)':'linear-gradient(135deg,#F87171,#EF4444)';
+  };
+  window.updateTradeSummary=function(){
+    var amt=parseFloat(document.getElementById('tradeAmount').value)||0;
+    document.getElementById('sumPay').textContent=amt.toFixed(2)+' tPOTv3';
+    document.getElementById('sumReceive').textContent=(amt*1000).toFixed(0)+' tokens';
+  };
+  window.executeTrade=function(){var amt=parseFloat(document.getElementById('tradeAmount').value)||0;if(amt<=0){showToast('Enter an amount first!');return;}showToast((tradeSide==='buy'?'Buy':'Sell')+' order submitted! (demo)');};
+  window.createToken=function(){var name=document.getElementById('tokenName').value;var symbol=document.getElementById('tokenSymbol').value;if(!name||!symbol){showToast('Please fill in token name & symbol!');return;}showToast('🚀 '+name+' ('+symbol+') deployment queued! (demo)');};
+
+  document.querySelectorAll('a[href^="#"]').forEach(function(a){a.addEventListener('click',function(e){e.preventDefault();var t=document.querySelector(this.getAttribute('href'));if(t)t.scrollIntoView({behavior:'smooth'});});});
+})();
+</script>
+
+</body>
+</html>
