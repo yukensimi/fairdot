@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Environment variables (NEVER commit private keys!)
+.env
+
+# Hardhat artifacts & cache (custom paths per hardhat.config.cjs)
+hh-artifacts/
+hh-cache/
+artifacts/
+cache/
+typechain-types/
+
+# Foundry
+out/
+cache_forge/
+lib/
+
+# Coverage
+coverage/
+coverage.json
+
+# Logs
+*.log
+npm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
