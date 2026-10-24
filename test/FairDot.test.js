@@ -26,8 +26,9 @@ describe("FairDot", function () {
     });
     it("cannot mint after minting is disabled", async function () {
       await fairDot.connect(owner).disableMinting();
-      await expect(fairDot.connect(owner).mint(await owner.getAddress(), SCALE * 1000n))
-        .to.be.revertedWith("Minting is disabled");
+      await expect(
+        fairDot.connect(owner).mint(await owner.getAddress(), SCALE * 1000n)
+      ).to.be.revertedWith("Minting is disabled");
     });
   });
 
@@ -49,7 +50,6 @@ describe("FairDot", function () {
       const a2 = SCALE * 1000n;
       await fairDot.connect(pool).recordBuy(await user1.getAddress(), a2, p2);
 
-      // Contract formula: avg = (p1*a1 + p2*a2) / (a1 + a2) = 2.5
       const expectedAvg = 25n * SCALE / 10n;
       const pos = await fairDot.positions(await user1.getAddress());
       expect(pos.avgEntryPrice).to.equal(expectedAvg);
@@ -67,8 +67,8 @@ describe("FairDot", function () {
       await fairDot.connect(pool).recordPrice(pNow, amt);
 
       const [withdrawable, locked, , status] = await fairDot.getWithdrawable(await user1.getAddress());
-      expect(status).to.equal(0);
-      expect(locked).to.equal(0);
+      expect(Number(status)).to.equal(0);
+      expect(locked).to.equal(0n);
       expect(withdrawable).to.equal(amt);
     });
   });
@@ -84,8 +84,8 @@ describe("FairDot", function () {
       await fairDot.connect(pool).activateLock(await user1.getAddress());
 
       const [, , ratioBP, status] = await fairDot.getWithdrawable(await user1.getAddress());
-      expect(ratioBP).to.be.above(50000n);
-      expect(status).to.equal(1);
+      expect(Number(ratioBP)).to.be.above(50000);
+      expect(Number(status)).to.equal(1);
     });
 
     it("profit releases 10% per day over 10 days", async function () {
@@ -98,21 +98,21 @@ describe("FairDot", function () {
       await fairDot.connect(pool).activateLock(await user1.getAddress());
 
       const [w0, l0, , s0] = await fairDot.getWithdrawable(await user1.getAddress());
-      expect(s0).to.equal(1);
-      expect(l0).to.be.above(0);
+      expect(Number(s0)).to.equal(1);
+      expect(l0 > 0n).to.equal(true);
 
       await ethers.provider.send("evm_increaseTime", [3 * 86400]);
       await ethers.provider.send("evm_mine", []);
 
       const [, l3, ,] = await fairDot.getWithdrawable(await user1.getAddress());
-      expect(l3).to.be.below(l0);
+      expect(l3 < l0).to.equal(true);
 
       await ethers.provider.send("evm_increaseTime", [10 * 86400]);
       await ethers.provider.send("evm_mine", []);
 
       const [, l10, , s10] = await fairDot.getWithdrawable(await user1.getAddress());
-      expect(s10).to.equal(2);
-      expect(l10).to.equal(0);
+      expect(Number(s10)).to.equal(2);
+      expect(l10).to.equal(0n);
     });
   });
 
@@ -128,7 +128,7 @@ describe("FairDot", function () {
       await fairDot.connect(user1).transfer(await user2.getAddress(), SCALE * 500n);
 
       const pos2 = await fairDot.positions(await user2.getAddress());
-      expect(pos2.avgEntryPrice).to.be.above(0);
+      expect(pos2.avgEntryPrice > 0n).to.equal(true);
     });
   });
 
@@ -139,32 +139,36 @@ describe("FairDot", function () {
 
     it("withdrawal <= 10% of liquidity: instant (1 part)", async function () {
       const [parts] = await fairDot.getStaggerInfo(SCALE * 500n);
-      expect(parts).to.equal(1);
+      expect(Number(parts)).to.equal(1);
     });
 
     it("withdrawal 10-30% of liquidity: 3 parts, 8h interval", async function () {
       const [parts, intv] = await fairDot.getStaggerInfo(SCALE * 2000n);
-      expect(parts).to.equal(3);
-      expect(intv).to.equal(8 * 3600);
+      expect(Number(parts)).to.equal(3);
+      expect(Number(intv)).to.equal(8 * 3600);
     });
 
     it("withdrawal > 30% of liquidity: 10 parts, 1 day interval", async function () {
       const [parts, intv] = await fairDot.getStaggerInfo(SCALE * 4000n);
-      expect(parts).to.equal(10);
-      expect(intv).to.equal(24 * 3600);
+      expect(Number(parts)).to.equal(10);
+      expect(Number(intv)).to.equal(24 * 3600);
     });
   });
 
   describe("7. Security", function () {
     it("only the pool can call recordBuy / recordPrice", async function () {
-      await expect(fairDot.connect(user1).recordBuy(await user1.getAddress(), 100, SCALE))
-        .to.be.revertedWith("Only liquidity pool");
-      await expect(fairDot.connect(user1).recordPrice(SCALE, 100))
-        .to.be.revertedWith("Only liquidity pool");
+      await expect(
+        fairDot.connect(user1).recordBuy(await user1.getAddress(), 100, SCALE)
+      ).to.be.revertedWith("Only liquidity pool");
+      await expect(
+        fairDot.connect(user1).recordPrice(SCALE, 100)
+      ).to.be.revertedWith("Only liquidity pool");
     });
+
     it("only owner can set liquidity pool", async function () {
-      await expect(fairDot.connect(user1).setLiquidityPool(await user1.getAddress()))
-        .to.be.revertedWithCustomError;
+      await expect(
+        fairDot.connect(user1).setLiquidityPool(await user1.getAddress())
+      ).to.be.revertedWithCustomError;
     });
   });
 });
