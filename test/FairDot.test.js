@@ -168,7 +168,8 @@ describe("FairDot", function () {
     it("only owner can set liquidity pool", async function () {
       await expect(
         fairDot.connect(user1).setLiquidityPool(await user1.getAddress())
-      ).to.be.revertedWithCustomError;
+      ).to.be.revertedWithCustomError(fairDot, "OwnableUnauthorizedAccount")
+        .withArgs(await user1.getAddress());
     });
   });
 });

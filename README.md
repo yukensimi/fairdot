@@ -86,6 +86,8 @@ npm run test
 npm run deploy:portaldotv3
 ```
 
+To check the target chain, deployer balance, and estimated deployment costs without sending transactions, run `PREFLIGHT_ONLY=1 npm run deploy:portaldotv3` after setting `.env`.
+
 ---
 
 ## Project Structure (matches proven reference layout)
