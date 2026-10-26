@@ -12,7 +12,8 @@ module.exports = {
       viaIR: true,
       evmVersion: "shanghai",
       metadata: {
-        bytecodeHash: "none"
+        bytecodeHash: "none",
+        appendCBOR: false
       }
     }
   },
