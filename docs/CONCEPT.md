@@ -53,7 +53,7 @@ This is weighted by the **number of tokens acquired**, not by the amount of mone
 - Total cost = 400 quote units; total tracked tokens = 200.
 - Average entry price = `400 / 200 = 2` quote units per token.
 
-The example illustrates the selected cost-basis rule: the average entry price is the total quote cost divided by the total token quantity.
+The average entry price is the total quote cost divided by the total token quantity.
 
 ## 4. Effective price and protection ratio
 
@@ -155,7 +155,7 @@ The thresholds are evaluated for a specific wallet and withdrawal. Repeated smal
 
 ## 8. Transfer policy: the single-approved-pool model
 
-FairDot follows the selected **Policy B**:
+All market transactions use one configured pool:
 
 1. Only the configured pool can move tokens into or out of its own address as part of market transactions.
 2. Contract-address trading routes other than that pool are rejected.
@@ -163,7 +163,7 @@ FairDot follows the selected **Policy B**:
 4. A transfer does not create a buy record or cost basis for untracked tokens.
 5. Tokens without recorded cost basis cannot be sold through the pool as tracked tokens.
 
-This policy is intentionally less composable than a standard unrestricted ERC-20 market. It is designed to keep this implementation’s accounting tied to a single known pool, not to support arbitrary routers, exchanges, or contract wallets.
+This single-pool design is intentionally less composable than a standard unrestricted ERC-20 market. It keeps position accounting tied to one known market and does not support arbitrary routers, exchanges, or contract wallets.
 
 ## 9. Launch and supply behavior
 

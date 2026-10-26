@@ -139,7 +139,7 @@ It checks the configured chain and estimates contract-deployment gas without sen
 
 ### How does the deployment script seed and enable trading?
 
-Set both `INITIAL_LIQUIDITY_TOKEN_AMOUNT` and `INITIAL_LIQUIDITY_TPOT` to deliberately chosen amounts to have the script approve and seed the pool. After confirming the seed, it disables minting and enables trading. If the variables are omitted, the script deploys and configures the contracts but leaves trading disabled; it does not seed the pool or disable minting.
+To seed the pool automatically, set both `INITIAL_LIQUIDITY_TOKEN_AMOUNT` and `INITIAL_LIQUIDITY_TPOT` to the intended seed amounts. The script approves the token transfer, seeds the pool, confirms the seed, disables minting, and enables trading. If the variables are omitted, the script deploys and configures the contracts but leaves trading disabled; it does not seed the pool or disable minting.
 
 ### How can an EVM account be funded?
 
@@ -147,7 +147,7 @@ Use Portaldot’s current official instructions for mapping an EVM H160 account 
 
 ### How many local tests are included?
 
-The repository currently has 15 passing local tests. They test selected contract behaviors and do not prove the absence of bugs or replace an independent security review.
+The repository currently has 15 passing local tests. They cover core contract behaviors but do not prove the absence of bugs or replace an independent security review.
 
 ## F. Fairness and design intent
 

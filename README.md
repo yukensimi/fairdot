@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="logo.PNG" alt="FairDot logo" width="132" />
+<img src="logo.PNG" alt="FairDot logo" width="132" />
   <h1>FairDot</h1>
   <p><strong>Fairer exit mechanics for memecoin markets</strong></p>
   <p>Built for <strong>Portaldot Hacker House 2026</strong> on DoraHacks · Ecosystem DApps</p>
@@ -19,13 +19,21 @@ The current implementation is intentionally centered on one configured pool. It 
 ## Contents
 
 - [The problem](#the-problem)
+
 - [How FairDot works](#how-fairdot-works)
+
 - [Project Structure](#project-structure-matches-proven-reference-layout)
+
 - [Build and test](#build-and-test)
+
 - [Portaldot configuration](#portaldot-configuration)
+
 - [Deployment](#deployment)
+
 - [Hacker House submission checklist](#hacker-house-submission-checklist)
+
 - [Documentation](#documentation)
+
 - [Disclaimer](#disclaimer)
 
 ## The problem
@@ -61,11 +69,11 @@ The schedule is bound to a token quantity. Repeated small sales or distributing 
 
 ### Transfer and market policy
 
-FairDot implements the selected **single-approved-pool model**. Token transfers between ordinary wallets are allowed and carry position accounting proportionally. Contract-address interactions are restricted; the configured pool is the only supported market endpoint. Initial supply, minted tokens, and other tokens without recorded buy cost are marked untracked and cannot be sold through the pool as if they had a purchase history.
+FairDot routes market transactions through one configured pool. Transfers between ordinary wallets are allowed and carry position accounting proportionally. Contract-address interactions are restricted; that pool is the only supported market endpoint. Initial supply, minted tokens, and other tokens without recorded buy cost are marked untracked and cannot be sold through the pool as if they had a purchase history.
 
 ## Project Structure (matches proven reference layout)
 
-```text
+```
 fairdot/
 ├── src/                              # Solidity sources (Foundry-style layout)
 │   ├── FairDot.sol                   # ERC-20, cost basis, protection and schedules
@@ -103,7 +111,7 @@ npm run compile
 npm test
 ```
 
-The current local suite contains **15 passing tests**. These tests cover selected accounting, transfer, protection, schedule, and access-control behavior; they are not a security audit.
+The current local suite contains **15 passing tests**. These tests cover core accounting, transfer, protection, schedule, and access-control behavior; they are not a security audit.
 
 ## Portaldot configuration
 
@@ -123,7 +131,8 @@ If you need to fund an EVM account, follow Portaldot’s current official instru
 ## Deployment
 
 1. Install dependencies and run the build and tests above.
-2. Create a local environment file and add your RPC URL and private key:
+
+1. Create a local environment file and add your RPC URL and private key:
 
    ```bash
    cp .env.example .env
@@ -131,7 +140,7 @@ If you need to fund an EVM account, follow Portaldot’s current official instru
 
    Set `PORTALDOTV3_TESTNET_RPC_URL` and `PRIVATE_KEY` in `.env`. Keep `.env` private and untracked.
 
-3. Run a read-only deployment preflight:
+1. Run a read-only deployment preflight:
 
    ```bash
    PREFLIGHT_ONLY=1 npm run deploy:portaldotv3
@@ -139,16 +148,16 @@ If you need to fund an EVM account, follow Portaldot’s current official instru
 
    The preflight checks the configured chain and estimates contract-deployment gas. It does not send a transaction and does not fully account for runtime deposits or every setup transaction.
 
-4. To have the deployment script seed the pool, set **both** of these optional variables in `.env` to amounts you have deliberately chosen:
+1. To have the deployment script seed the pool, set **both** of these optional variables in `.env` to the intended seed amounts:
 
-   ```env
+   ```
    INITIAL_LIQUIDITY_TOKEN_AMOUNT=1000000
    INITIAL_LIQUIDITY_TPOT=100
    ```
 
    These are examples of input format, not recommended liquidity amounts. With both values set, the live deployment sends token approval and initial-liquidity transactions, then disables minting and enables trading after confirming the seed. The quote amount is an on-chain deposit; confirm your account balance and intended parameters before running a live deployment.
 
-5. Run the live command only when ready to submit those transactions:
+1. Run the live command only when ready to submit those transactions:
 
    ```bash
    npm run deploy:portaldotv3
@@ -159,18 +168,27 @@ If the two initial-liquidity variables are omitted, the script deploys and confi
 ## Hacker House Submission Checklist
 
 - [x] Public GitHub repository and project source
+
 - [x] FairDot concept, architecture, and Q&A documentation in English
+
 - [x] Project README with setup, deployment, and structure information
+
 - [x] Solidity build configuration for Portaldot V3 EVM
+
 - [x] Local compile and test run: 15 tests passing
+
 - [ ] Deploy the reviewed build to Portaldot V3 and record token/pool addresses, transaction hashes, and block numbers
+
 - [ ] Publish a working, clearly labelled demo experience
+
 - [ ] Prepare the submission pitch deck and a concise product demonstration
 
 ## Documentation
 
 - [Concept & mathematical formulas](docs/CONCEPT.md)
+
 - [Architecture & transaction flows](docs/ARCHITECTURE.md)
+
 - [Frequently asked questions](docs/QNA.md)
 
 ## Disclaimer
