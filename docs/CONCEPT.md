@@ -1,154 +1,89 @@
-# Concept & Mathematical Formulas - FairDot
+# FairDot — Formula dan Batasan Prototipe
 
-## Core Principle
+## Tujuan
 
-> **"Your principal always belongs to you. Outsized profits are enjoyed together, not taken alone."**
+FairDot menguji mekanisme cost basis per holder, pemicu proteksi 5×, pelepasan profit bertahap, dan batas penjualan yang ditegakkan oleh satu pool terdaftar. Ini masih prototipe testnet; jangan anggap klaim proteksi sebagai jaminan bahwa harga tidak turun atau pokok selalu dapat direalisasikan pada harga tertentu.
 
-This system does not prevent anyone from getting rich. It only ensures **nobody can crash the market while exiting**, so all parties - early holders, late entrants, and whales - share the upside fairly.
+## 1. Harga masuk rata-rata berbobot jumlah token
 
----
+Harga masuk adalah rata-rata biaya yang benar-benar dibayar per token:
 
-## Core Formulas
-
-### 1. Weighted-Average Entry Price (Value-Weighted)
-
-Each user has their own "entry price," computed as the **value-weighted average** of all their buys:
-
-```
-P_entry = Σ(Amount_i × Price_i) / Σ(Amount_i)
+```text
+P_entry = Σ(tokenAmount_i × price_i) / Σ(tokenAmount_i)
+TotalInvested = Σ(tokenAmount_i × price_i / 10^18)
+P_entry = TotalInvested × 10^18 / TotalTrackedTokens
 ```
 
-Where:
-- `Amount_i` = tokens bought in transaction i
-- `Price_i` = price per token in transaction i
-- Invested value per buy = `Amount_i × Price_i / 10^18`
+`tokenAmount_i` menggunakan unit ERC-20 18 desimal, dan `price_i` adalah harga per token dalam unit quote yang diskalakan 1e18.
 
-**Important:** This is a **value-weighted** average, not a simple arithmetic average.
+**Contoh:**
 
-**Example:**
-- Buy 1,000 tokens @ price 1.0 -> invested value = 1,000
-- Buy 1,000 tokens @ price 3.0 -> invested value = 3,000
-- Weighted-average entry = (1×1,000 + 3×1,000) / (1,000 + 1,000) = **2.5**
+- Beli 1.000 token pada harga 1: biaya 1.000 quote.
+- Beli 1.000 token pada harga 3: biaya 3.000 quote.
+- Total biaya 4.000 quote dibagi 2.000 token, sehingga `P_entry = 2,0`.
 
-**Purpose:** Buying in batches at different prices doesn't distort the entry price - it always reflects the actual capital deployed.
+Ini adalah rata-rata berbobot jumlah token dan cost basis per token. Contoh lama yang menghasilkan 2,5 tidak sesuai dengan definisi tersebut dan telah dihapus.
 
-### 2. Principal Value vs Current Value
+## 2. Harga efektif dan mode proteksi
 
-```
-Value_principal  = Total_Tokens × P_entry
-Value_current    = Total_Tokens × P_current
-Profit           = Value_current - Value_principal
+`P_effective` pada prototipe adalah VWAP 24 jam dari trade points pool:
+
+```text
+P_effective = Σ(price × quoteVolume) / Σ(quoteVolume)
+Ratio = P_effective / P_entry
 ```
 
-### 3. Price Ratio (Trigger)
+Pool harus merekam volume buy dan sell dalam **unit quote yang sama**. Jika tidak ada observasi segar, harga efektif tidak tersedia dan penjualan posisi tercatat ditolak sampai ada observasi baru; kontrak tidak lagi memakai harga yang usang tanpa batas waktu.
 
-```
-R = P_effective / P_entry
-```
-
-`P_effective` = 24h volume-weighted average price (not spot price - anti-manipulation):
-
-```
-P_effective = Σ(P_t × Volume_t) / Σ(Volume_t)   for the last 24 hours
-```
-
-| R | Mode | Rule |
+| Rasio | Mode prototipe | Perilaku |
 |---|---|---|
-| < 5 | Normal | 100% freely withdrawable |
-| >= 5 | Protection | Principal free, profit released gradually |
+| `< 5×` | Normal | Seluruh saldo dilaporkan dapat ditarik |
+| `>= 5×` | Proteksi | Token pokok dihitung dari `TotalInvested / P_effective`; profit sisanya mengikuti jadwal lock |
 
-### 4. Splitting Tokens: Principal vs Profit
+Konversi pokok pada prototipe juga memakai VWAP, bukan harga eksekusi swap. Karena harga swap aktual bisa berbeda akibat slippage dan perubahan pasar, ini belum menjamin jumlah quote yang diterima sama dengan nilai pokok.
 
-```
-Token_principal = Value_principal / P_current   -> ALWAYS freely withdrawable
-Token_profit    = Total_Tokens - Token_principal -> released gradually
-```
+## 3. Pelepasan profit
 
-### 5. Gradual Profit Release (10 days)
+Setelah `activateLock(user)` dipanggil ketika rasio minimal 5×, kontrak mencatat jumlah profit dan waktu mulai. Profit dilepas linear selama 10 hari; pada hari ke-10 seluruh profit posisi dilaporkan tersedia.
 
-After lock activates (day 0):
+Timer dimulai saat fungsi aktivasi dipanggil, bukan otomatis pada detik persis harga melewati 5×. Pool mock memanggil aktivasi sebelum penjualan; fungsi juga dapat dipanggil siapa saja untuk holder. Semantik siklus harga berulang, pembelian tambahan saat lock aktif, serta penggabungan dua posisi dengan waktu lock berbeda masih perlu spesifikasi dan test tambahan sebelum mainnet.
 
-```
-On day t:
-  Tokens_released_daily = Token_profit / 10
-  Tokens_locked(t)      = Token_profit × (1 - t/10)
-  Tokens_withdrawable   = Token_principal + Σ(days 0..t) Tokens_released_daily
-```
+## 4. Transfer posisi
 
-- Day 0: principal + 0% profit
-- Day 1: principal + 10% profit
-- Day 5: principal + 50% profit
-- Day 10: principal + 100% profit = EVERYTHING free
+Saat token berpindah antar-EOA, proporsi posisi dihitung terhadap saldo pengirim **sebelum** transfer:
 
-### 6. Large-Withdrawal Stagger
-
-```
-L_ratio = Withdrawal_Value / Total_Liquidity
-
-If L_ratio <= 10%   -> instant (1 part)
-If 10% < L_ratio <= 30% -> 3 parts, 8h apart
-If L_ratio > 30%   -> 10 parts, 1 day apart
+```text
+share = amountTransferred / balanceBeforeTransfer
+investedMoved = totalInvestedSender × share
+trackedTokensMoved = trackedTokensSender × share
 ```
 
-### 7. Entry-Price Inheritance (Anti-Bypass)
+Cost basis penerima digabung berdasarkan total biaya dan total token terlacak. Transfer ke pool terdaftar adalah jalur penjualan dan basis token yang dijual dikurangi dari posisi pengirim, bukan diwariskan ke pool sebagai basis pembeli berikutnya.
 
-When tokens move from wallet A to B:
+Jadwal stagger yang sedang aktif tidak dapat dipindahkan dengan transfer. Transfer ke/dari kontrak selain pool terdaftar diblokir. Ini membatasi composability: wallet kontrak, router, bridge, dan DEX lain tidak dapat memakai token kecuali desain/daftar integrasinya diperbarui.
 
+## 5. Stagger penjualan
+
+Pool membandingkan nilai satu permintaan penjualan dengan quote liquidity:
+
+```text
+L_ratio = withdrawalValue / totalQuoteLiquidity
+<= 10%       -> 1 bagian
+>10% dan <=30% -> 3 bagian, jarak 8 jam
+>30%         -> 10 bagian, jarak 1 hari
 ```
-share = Amount_transferred / (Balance_A + Amount_transferred)
-Invested_inherited = Total_Invested_A × share
 
-P_entry_B = (P_entry_B × Invested_B + P_entry_A × Invested_inherited)
-            / (Invested_B + Invested_inherited)
-Invested_B += Invested_inherited
-Invested_A -= Invested_inherited
-```
+Untuk jumlah besar, holder membuat jadwal atas jumlah token tertentu; pool hanya menerima installment sesuai jadwal. Ini masih berbasis permintaan/akun dan belum menutup bypass dengan banyak penjualan kecil atau memecah posisi ke beberapa alamat. Karena itu, klaim “tidak ada yang dapat menguras pool” belum dapat dibuat.
 
-**Result:** Moving wallets CANNOT reset entry price. Rules always apply.
+## 6. Pool terdaftar dan cakupan B
 
----
+Token hanya mengizinkan perpindahan yang melibatkan kontrak `liquidityPool` terdaftar; hanya satu pool dapat dikonfigurasi pada prototipe ini dan tidak dapat diganti setelah trading diaktifkan. Transfer EOA-ke-EOA tetap boleh. Kebijakan ini menutup jalur interaksi langsung dengan kontrak DEX yang tidak disetujui, tetapi tidak mencegah transaksi privat antar-wallet dan tidak menggabungkan batas penjualan lintas-wallet.
 
-## PortaldotV3 Deployment Notes
+## 7. Belum diimplementasikan / prasyarat mainnet
 
-- **Native token:** tPOTv3 (14 decimals on Substrate side; EVM layer scales to 18)
-- **Storage deposit:** ~0.08 tPOTv3 per byte of deployed code
-- **Size optimization:** compiler settings minimize bytecode (optimizer runs=1, viaIR, shanghai, no metadata)
-- **Funding:** Map H160 -> SS58 via Node Console `reviveApi.accountId`, send tPOTv3 to SS58 address
-
----
-
-## Example Scenario
-
-### Setup
-- Initial price = $1
-- Liquidity = $100,000
-
-### Early Holder (bought at $1)
-- Principal = $1,000 -> holds 1,000 tokens
-- Price moons to $10 -> ratio = 10x -> protection active
-- Token_principal = $1,000 / $10 = 100 tokens -> **free immediately** (gets back full principal)
-- Token_profit = 900 tokens -> released 90 tokens/day
-- Day 1: can withdraw 190 tokens = $1,900 (1.9x principal)
-- Day 5: can withdraw 550 tokens = $5,500 (5.5x principal)
-- Day 10: all 1,000 tokens free = $10,000 (10x principal)
-
-### Late Entrant (bought at $10, after the 10x moon)
-- Principal = $1,000 -> holds 100 tokens
-- P_entry = $10
-- If price stays at $10 -> ratio = 1x -> **NORMAL, fully free to withdraw**
-- If price moons again to $50 -> ratio = 5x -> protection active
-  - Token_principal = $1,000 / $50 = 20 tokens -> free immediately
-  - Token_profit = 80 tokens -> released 8 tokens/day
-  - **Same profit ratio as the early holder!**
-
----
-
-## Why This System Is Better
-
-| Aspect | Normal Market | FairDot |
-|---|---|---|
-| First exit | Dumps everything, crashes price | Can only sell gradually, price holds |
-| Late entrants | Buy the top, get rekt | Principal safe, profit fairly computed |
-| Whales | Buy the top, get left behind | Nobody exits first -> exits with full profit |
-| Rally duration | Minutes -> crashes | Days -> everyone participates |
-| Market trust | Low (many get rekt) | High (everyone feels treated fairly) |
+- Liquidity lock/vesting LP tidak diimplementasikan.
+- Token awal/treasury atau penerima token tanpa record buy tidak memiliki cost basis pembelian otomatis.
+- Riwayat harga berupa array yang terus bertambah; pemindaian VWAP perlu dibatasi atau diganti agregasi yang aman untuk volume produksi.
+- Pool mock adalah contoh testnet tanpa fee dan tanpa mekanisme oracle/MEV atau manajemen likuiditas produksi.
+- Perlu definisi final untuk lock pada beberapa siklus harga, tambahan pembelian, dan penggabungan posisi.
+- Perlu audit keamanan independen dan pengujian semua jalur pasar sebelum mainnet.

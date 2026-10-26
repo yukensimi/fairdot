@@ -6,6 +6,8 @@ const EXPECTED_CHAIN_ID = 420420777n;
 const INITIAL_SUPPLY = 1_000_000_000n;
 const TOKEN_NAME = "FairDot";
 const TOKEN_SYMBOL = "FAIR";
+const INITIAL_LIQUIDITY_TOKEN_AMOUNT = process.env.INITIAL_LIQUIDITY_TOKEN_AMOUNT;
+const INITIAL_LIQUIDITY_TPOT = process.env.INITIAL_LIQUIDITY_TPOT;
 
 async function estimateDeployment(factory, args, deployerAddress, feePerGas, label) {
   const request = await factory.getDeployTransaction(...args);
@@ -39,10 +41,34 @@ async function main() {
   if (feePerGas == null) {
     throw new Error("RPC did not return a usable gas price; cannot estimate deployment cost.");
   }
+  if (Boolean(INITIAL_LIQUIDITY_TOKEN_AMOUNT) !== Boolean(INITIAL_LIQUIDITY_TPOT)) {
+    throw new Error(
+      "Set both INITIAL_LIQUIDITY_TOKEN_AMOUNT and INITIAL_LIQUIDITY_TPOT, or leave both unset."
+    );
+  }
+  let seedTokenAmount = 0n;
+  let seedQuoteAmount = 0n;
+  if (INITIAL_LIQUIDITY_TOKEN_AMOUNT && INITIAL_LIQUIDITY_TPOT) {
+    try {
+      seedTokenAmount = hre.ethers.parseUnits(INITIAL_LIQUIDITY_TOKEN_AMOUNT, 18);
+      seedQuoteAmount = hre.ethers.parseEther(INITIAL_LIQUIDITY_TPOT);
+    } catch (error) {
+      throw new Error(`Invalid initial liquidity amount: ${error.message}`);
+    }
+    if (seedTokenAmount <= 0n || seedQuoteAmount <= 0n) {
+      throw new Error("Initial liquidity amounts must be greater than zero.");
+    }
+    if (seedTokenAmount > INITIAL_SUPPLY * 10n ** 18n) {
+      throw new Error("Initial token liquidity exceeds the configured total supply.");
+    }
+  }
 
   console.log("Deployer:", deployer.address);
   console.log("Chain ID:", network.chainId.toString());
   console.log("Balance:", hre.ethers.formatEther(balance), "tPOTv3");
+  if (seedQuoteAmount > 0n) {
+    console.log("Initial quote liquidity:", hre.ethers.formatEther(seedQuoteAmount), "tPOTv3");
+  }
 
   // Estimate both deployments before sending the first transaction, so an
   // insufficient balance is visible before a partial deployment can occur.
@@ -59,7 +85,7 @@ async function main() {
   const poolFactory = await hre.ethers.getContractFactory("MockLiquidityPool", deployer);
   const poolFee = await estimateDeployment(
     poolFactory,
-    [hre.ethers.ZeroAddress],
+    ["0x0000000000000000000000000000000000000001"],
     deployer.address,
     feePerGas,
     "MockLiquidityPool"
@@ -76,6 +102,9 @@ async function main() {
     console.warn(
       "WARNING: balance is below the estimated deployment fee plus buffer. The estimate is conservative and the actual charge may differ, but deployment may be rejected. Verify that this H160 account is funded through its mapped SS58 account before continuing."
     );
+  }
+  if (seedQuoteAmount > 0n && balance < estimatedWithBuffer + seedQuoteAmount) {
+    console.warn("WARNING: balance may not cover both estimated deployment fees and initial quote liquidity.");
   }
 
   if (process.env.PREFLIGHT_ONLY === "1") {
@@ -113,14 +142,39 @@ async function main() {
   // ============================================================
   console.log("\n=== Configuring ===");
 
-  await token.setLiquidityPool(poolAddress);
+  const setPoolTx = await token.setLiquidityPool(poolAddress);
+  await setPoolTx.wait();
+  if ((await token.liquidityPool()).toLowerCase() !== poolAddress.toLowerCase()) {
+    throw new Error("Pool configuration was not confirmed on-chain.");
+  }
   console.log("Liquidity pool set to:", poolAddress);
 
-  await token.enableTrading();
-  console.log("Trading enabled");
-
-  await token.disableMinting();
-  console.log("Minting disabled permanently");
+  if (INITIAL_LIQUIDITY_TOKEN_AMOUNT && INITIAL_LIQUIDITY_TPOT) {
+    if (seedTokenAmount > await token.balanceOf(deployer.address)) {
+      throw new Error("Initial token liquidity exceeds the deployer's FairDot balance.");
+    }
+    console.log("Adding initial liquidity; this is an on-chain transaction.");
+    const approveTx = await token.approve(poolAddress, seedTokenAmount);
+    await approveTx.wait();
+    const seedTx = await mockPool.addLiquidity(seedTokenAmount, { value: seedQuoteAmount });
+    await seedTx.wait();
+    if (!(await mockPool.liquidityInitialized())) {
+      throw new Error("Initial liquidity transaction was not confirmed by the pool.");
+    }
+    console.log("Initial liquidity added");
+    const disableMintTx = await token.disableMinting();
+    await disableMintTx.wait();
+    const enableTradingTx = await token.enableTrading();
+    await enableTradingTx.wait();
+    if (!(await token.mintDisabled()) || !(await token.tradingActive())) {
+      throw new Error("Launch configuration was not confirmed on-chain.");
+    }
+    console.log("Minting disabled and trading enabled");
+  } else {
+    console.warn(
+      "INITIAL_LIQUIDITY_TOKEN_AMOUNT / INITIAL_LIQUIDITY_TPOT not set. Trading remains disabled; seed the pool before enabling trading."
+    );
+  }
 
   // ============================================================
   // 4. Summary
@@ -138,11 +192,11 @@ async function main() {
   console.log("Node Console:  https://node-console.portaldot.dev/");
   console.log("=".repeat(60));
 
-  console.log("\nNEXT STEPS:");
-  console.log("1. Fund the deployer's mapped SS58 address with tPOTv3 (via Node Console)");
-  console.log("2. Add liquidity to the pool");
-  console.log("3. Call updateLiquidity() with total liquidity");
-  console.log("4. Test with accounts: buy, pump price, sell");
+  if (!INITIAL_LIQUIDITY_TOKEN_AMOUNT || !INITIAL_LIQUIDITY_TPOT) {
+    console.log("\nNEXT STEPS (trading is still disabled):");
+    console.log("1. Seed the pool exactly once with initial FairDot and native tPOTv3 liquidity");
+    console.log("2. Disable minting and enable trading only after confirming the seed transaction");
+  }
 }
 
 main().catch((error) => {

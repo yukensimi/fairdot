@@ -1,136 +1,61 @@
-# Architecture - FairDot
+# FairDot — Architecture (Testnet Prototype)
 
-## Overview
+## Components
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     USER (DApp / Wallet)                     │
-│              (MetaMask / any EVM-compatible wallet)          │
-└──────────────────────────┬──────────────────────────────────┘
-                           │ buy/sell transactions
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│                  LIQUIDITY POOL (DEX)                        │
-│  • Swaps FAIR token ↔ quote token (tPOTv3)                  │
-│  • Calls recordBuy() + recordPrice() after every swap       │
-│  • Calls validateWithdraw() BEFORE executing a sell         │
-│  • Calls updateLiquidity() when liquidity changes          │
-└──────────────────────────┬──────────────────────────────────┘
-                           │ contract calls
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│                FAIRDOT SMART CONTRACT                        │
-│                                                              │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
-│  │ User Position│  │ Price History│  │ Stagger Schedule │  │
-│  │ • avgEntry   │  │ • price[]    │  │ • large withdraw │  │
-│  │ • invested   │  │ • volume[]   │  │ • parts & delay  │  │
-│  │ • lockStart  │  │ • timestamp  │  │                  │  │
-│  └──────┬───────┘  └──────┬───────┘  └────────┬─────────┘  │
-│         │                 │                    │            │
-│         └─────────────────┼────────────────────┘            │
-│                           ▼                                 │
-│              ┌────────────────────────┐                     │
-│              │   CORE LOGIC ENGINE     │                     │
-│              │  • getAvgPrice24h()    │                     │
-│              │  • getWithdrawable()   │                     │
-│              │  • validateWithdraw()  │                     │
-│              │  • activateLock()      │                     │
-│              │  • _inheritPosition()  │                     │
-│              └────────────────────────┘                     │
-└─────────────────────────────────────────────────────────────┘
-                           │
-                           ▼
-              ┌────────────────────────┐
-              │   PORTALDOT V3 EVM     │
-              │   Chain ID: 420420777  │
-              │   Storage deposit:     │
-              │   ~0.08 tPOTv3/byte    │
-              └────────────────────────┘
+```text
+EOA wallet
+  ├─ buy/sell through the one configured MockLiquidityPool
+  └─ wallet-to-wallet transfer inherits tracked cost basis
+
+MockLiquidityPool (testnet only)
+  ├─ calls FairDot.recordBuy and recordPrice after a buy
+  ├─ calls FairDot.activateLock before validating a sell
+  ├─ calls FairDot.validateWithdraw before a sell
+  ├─ calls FairDot.confirmStaggerWithdraw after an installment
+  └─ updates quote liquidity after each swap
+
+FairDot token
+  ├─ stores aggregate token-weighted cost basis
+  ├─ compares 24-hour quote-volume VWAP with each holder's entry price
+  ├─ validates protected sell amount and stagger installment
+  └─ blocks token transfers involving unapproved contract addresses
 ```
 
-## Deployment Optimizations (PortaldotV3-specific)
+## 1. Pool configuration
 
-PortaldotV3 (pallet-revive) charges a storage deposit per byte of deployed code. The contract is therefore compiled with size-optimized settings:
+The owner deploys FairDot, deploys a pool contract, configures that pool, and enables trading. A pool must have contract bytecode. Once trading is active, the pool cannot be changed. The current implementation supports one pool only; router and multi-pool support are not implemented.
 
-| Setting | Value | Purpose |
-|---|---|---|
-| `optimizer.runs` | 1 | Minimize bytecode size |
-| `viaIR` | true | Better optimization pipeline |
-| `evmVersion` | shanghai | Target EVM version |
-| `metadata.bytecodeHash` | none | Remove metadata hash |
-| `metadata.appendCBOR` | false | Remove CBOR metadata |
-| Solidity | 0.8.24 | Matches reference |
+## 2. Buy flow
 
-## Detailed Flow
+1. A buyer sends native tPOTv3 to the testnet pool.
+2. The pool computes a constant-product output and transfers FairDot from the configured pool address to the buyer.
+3. The pool records the buyer's token amount and execution price with `recordBuy`.
+4. The pool records price and quote volume with `recordPrice` and updates quote liquidity.
+5. `recordBuy` updates aggregate basis using `totalInvested / trackedTokens`.
 
-### 1. When a user BUYS tokens
-```
-User -> DEX Pool: buy FAIR with quote token
-DEX Pool -> FairDot.recordBuy(user, amount, price)
-   -> Compute new weighted-average entry price
-   -> Update totalInvested
-DEX Pool -> FairDot.recordPrice(price, volume)
-   -> Append point to priceHistory[]
-DEX Pool -> FairDot.updateLiquidity(newTotal)
-   -> Update total liquidity for stagger calculation
-Tokens transferred to user
-```
+Both buy and sell observations use quote-asset volume in the VWAP calculation. This is a single-pool testnet feed, not a production oracle.
 
-### 2. When a user SELLS tokens
-```
-User -> DEX Pool: sell FAIR
-DEX Pool -> FairDot.validateWithdraw(user, amount)
-   ├─ Compute effectivePrice (24h VWAP)
-   ├─ Compute ratio = effectivePrice / avgEntryPrice
-   ├─ If ratio < 5x -> ALLOW everything
-   └─ If ratio >= 5x -> Compute:
-        • capitalTokens = totalInvested / effectivePrice  (free)
-        • profitTokens = remainder -> check % released by day
-        • Compare amount vs withdrawableNow
-        • Also check stagger rules for large withdrawals
-   -> Return: allowed (true/false) + reason
-If allowed -> DEX executes swap
-If rejected -> transaction reverts with clear message
-```
+## 3. Sell and protection flow
 
-### 3. When Lock Activates (ratio crosses 5x)
-```
-DEX Pool detects ratio >= 5x for a user
-DEX Pool -> FairDot.activateLock(user)
-   -> Record lockedProfitStart = block.timestamp
-   -> Record lockedProfitTokens = profit token amount
-   -> Emit ProtectionActivated event
-From this point, profit releases 10% per day over 10 days
-```
+1. The pool calls `activateLock(user)`. If the holder is at or above 5× and has no active timer, the pool starts the 10-day timer. Below the trigger, this call clears stored lock state for that holder.
+2. The pool calls `validateWithdraw(user, amount)`.
+3. FairDot checks that the amount is within the holder's currently withdrawable amount and, if the transaction exceeds the liquidity threshold, that it matches an active installment schedule.
+4. The token also checks the transfer route when `transferFrom` sends tokens to the pool.
+5. On a successful sale, the pool transfers quote asset to the seller, updates price history, confirms the installment, and updates liquidity atomically.
 
-### 4. When tokens are TRANSFERRED between wallets
-```
-User A -> transfer(amount) to User B
-Before execution: _inheritPosition(A, B, amount)
-   -> Compute proportion: share = amount / (balanceA + amount)
-   -> inheritedInvested = totalInvested_A × share
-   -> User B: merge position (weighted-average entry price)
-   -> User A: reduce totalInvested proportionally
-   -> If totalInvested_A = 0 -> reset A's position
-Result: Cannot "reset" entry price by moving wallets
-```
+The timer starts on activation, not automatically at the exact 5× crossing for every holder. The principal token amount is calculated from VWAP, not the actual quote proceeds of the specific swap.
 
-## System Parameters (Constants)
+## 4. Stagger schedule
 
-| Parameter | Value | Description |
-|---|---|---|
-| `RATIO_TRIGGER` | 5x | Protection activation threshold |
-| `RELEASE_DAYS` | 10 days | Gradual profit release duration |
-| `STAGGER_THRESHOLD_LOW` | 10% liquidity | Light stagger threshold |
-| `STAGGER_THRESHOLD_HIGH` | 30% liquidity | Heavy stagger threshold |
+The holder calls `createStaggerSchedule(totalTokenAmount)` for a specific amount. FairDot computes the required number of parts from the effective VWAP and current quote liquidity. The pool accepts only the exact installment amount and enforces the delay between subsequent installments. Token transfers are blocked while a schedule is active. The prototype does not accumulate separate small sales or withdrawal history across different EOAs, so the schedule is not a complete anti-drain guarantee.
 
-## Security Guarantees
+## 5. Transfer policy (choice B)
 
-- ✅ **ReentrancyGuard** on state-changing functions
-- ✅ **Ownable** - only owner can set pool & enable trading
-- ✅ **Minting permanently disableable** - no unexpected inflation
-- ✅ **Only trusted pool** can call recordBuy / recordPrice / activateLock
-- ✅ **Position inheritance** prevents bypass via transfers
-- ✅ **Size-optimized** - minimizes storage deposit cost on PortaldotV3
-- ⚠️ **Requires third-party audit** before mainnet deployment
+- EOA-to-EOA transfers are allowed and split tracked investment/token basis in proportion to the amount transferred relative to the sender's pre-transfer balance.
+- Transfers into or out of a contract are allowed only when the configured pool is the counterparty and caller.
+- Other contract wallets, routers, bridges, and DEX pools are blocked.
+- The token cannot stop private EOA-to-EOA arrangements or combine withdrawal history across wallets.
+
+## 6. Known production gaps
+
+This architecture does not implement LP locking, does not automatically assign a cost basis to the initial supply/treasury distributions, and uses an ever-growing price-history array. Lock behavior for multiple market cycles, transfers between different lock schedules, and additional purchases during an active schedule remains incomplete. The mock pool has no fee, production oracle/MEV protection, or safe production liquidity-management design. Independent audit and a production integration are mandatory before mainnet.

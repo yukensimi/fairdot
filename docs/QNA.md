@@ -1,97 +1,62 @@
-# Complete Q&A - FairDot
+# FairDot — Q&A Prototipe
 
-## A. Background
+## A. Apa yang dilakukan FairDot?
 
-**Q: What is the main problem with today's memecoin market?**
-A: When price moons, early holders dump everything at once -> price crashes in minutes. Late entrants are left holding massive losses. There's no fairness: first out wins, everyone else pays.
+**Q: Apa tujuan FairDot?**
+A: Menguji cost basis per holder, pemicu proteksi pada rasio 5×, pelepasan profit bertahap, dan pembatasan jual pada pool yang mengintegrasikan kontrak.
 
-**Q: What change does FairDot introduce?**
-A: It shifts from "first out wins" to "everyone grows together." When price moons, nobody can exit first and leave others behind - all participants share the upside.
+**Q: Apakah harga atau pokok saya dijamin?**
+A: Tidak. Kontrak tidak menjamin harga naik, likuiditas tersedia, atau jumlah quote hasil penjualan sama dengan pokok yang dihitung. Harga eksekusi dapat berbeda dari VWAP akibat slippage dan perubahan pasar.
 
----
+## B. Mekanisme prototipe
 
-## B. Core Mechanism
+**Q: Bagaimana harga masuk dihitung?**
+A: Total quote yang diinvestasikan dibagi jumlah token yang tercatat. Pembelian 1.000 token pada harga 1 dan 1.000 token pada harga 3 menghasilkan harga masuk 2,0.
 
-**Q: When does the restriction activate?**
-A: It's computed against YOUR OWN entry price:
-- < 5x gain -> 100% freely withdrawable
-- >= 5x gain -> principal stays free, profit released 10%/day over 10 days
+**Q: Kapan proteksi aktif?**
+A: Saat VWAP 24 jam mencapai setidaknya 5× harga masuk. Jadwal lock dimulai ketika `activateLock(user)` dipanggil; pool mock memanggilnya sebelum penjualan yang dicoba pada mode proteksi. Aktivasi tidak otomatis terjadi tepat saat harga melintasi 5× untuk semua holder.
 
-**Q: Is my principal ever locked?**
-A: NEVER. Your principal is always fully withdrawable at any time. Only outsized profits are released gradually.
+**Q: Apakah pokok selalu bebas?**
+A: Dalam perhitungan prototipe, jumlah token pokok diperkirakan dari total investasi dibagi VWAP efektif, bukan harga eksekusi. Jika harga data tidak tersedia atau usang, penjualan posisi tercatat ditolak sampai data segar tersedia. Karena itu, ini bukan jaminan nilai pokok yang dapat direalisasikan.
 
-**Q: How is profit vs principal calculated?**
-A: Every buy records your weighted-average entry price. When selling: the portion worth your principal is free. The portion above principal = profit -> released gradually.
+**Q: Bagaimana penjualan besar ditangani?**
+A: Penjualan individual lebih dari 10% quote liquidity memerlukan jadwal. Jumlah token dipecah menjadi 3 bagian dengan jeda 8 jam, atau 10 bagian dengan jeda 1 hari untuk ukuran di atas 30%. Jadwal dibuat pemegang token sebelum menjual; ini belum otomatis membuat seluruh jumlah penjualan dalam satu permintaan.
 
-**Q: How are large withdrawals prevented from crashing the market?**
-A: If a withdrawal exceeds 10% of total liquidity, it's automatically split into installments (3 or 10 parts). The pool never drains in one shot.
+**Q: Bisakah stagger dilewati dengan transaksi kecil atau banyak wallet?**
+A: Ya, prototipe belum menggabungkan riwayat penjualan lintas transaksi kecil atau lintas alamat. Pemindahan token saat sebuah jadwal aktif diblokir, tetapi pemecahan sebelum jadwal dibuat masih mungkin. Ini blocker sebelum klaim anti-drain atau mainnet.
 
-**Q: What if price drops while some profit is still locked?**
-A: The portion already released remains freely withdrawable. If price drops back below the 5x threshold, the system returns to normal mode - everything becomes free.
+**Q: Apa yang terjadi saat token dipindahkan?**
+A: Transfer EOA-ke-EOA mewariskan cost basis secara proporsional. Transfer ke kontrak selain pool yang terdaftar diblokir. Penggabungan posisi dengan waktu lock berbeda dan perilaku lock pada siklus harga berulang masih memerlukan spesifikasi dan test tambahan.
 
-**Q: Can I bypass the rules by moving tokens to a new wallet?**
-A: No. Entry price is inherited proportionally on transfers. You cannot reset your entry price.
+## C. Kebijakan pool B dan kompatibilitas
 
----
+**Q: Mengapa hanya pool terdaftar yang boleh berinteraksi?**
+A: Ini membatasi penggunaan token lewat kontrak DEX/router yang tidak mengintegrasikan validasi FairDot. Prototipe hanya mendukung satu pool, yang harus ditetapkan sebelum trading aktif dan tidak dapat diganti setelahnya.
 
-## C. Fairness for All Parties
+**Q: Apakah token dapat dipakai bebas di DEX lain, bridge, multisig, atau smart wallet?**
+A: Belum. Interaksi dengan alamat kontrak selain pool terdaftar diblokir. Integrasi tambahan perlu desain whitelist dan review keamanan; kebijakan ini mengurangi composability.
 
-**Q: Do early holders lose out?**
-A: Quite the opposite. Without FairDot, price crashes in minutes and early holders only profit briefly. With FairDot, price holds for days -> total profit they can realize is LARGER.
+**Q: Apakah pilihan B mencegah penjualan privat atau transfer antar orang?**
+A: Tidak. Transfer antar-EOA tetap dimungkinkan. Token tidak dapat mengawasi kesepakatan privat di luar jalur pool, dan riwayat stagger tidak digabung lintas-wallet.
 
-**Q: What about late entrants who buy at the top?**
-A: Their principal is always free to withdraw. If price moons further, their profit is computed from THEIR entry price - the same fair ratio as early holders.
+## D. Likuiditas dan keamanan
 
-**Q: What about whales (large capital)?**
-A: Whales benefit the most. Whales fear being trapped at the top when everyone else exits first. FairDot guarantees nobody can exit before them. Their profit remains intact - only the release timing is spread out to keep price stable.
+**Q: Apakah likuiditas terkunci?**
+A: Tidak ada mekanisme LP lock/vesting dalam kode saat ini. Jangan mengklaim rugpull dicegah oleh penguncian likuiditas.
 
-**Q: Is this system anti-wealth?**
-A: NO. It is anti-market-destruction. Anyone can get rich, as long as they don't crash the market while exiting.
+**Q: Apakah MockLiquidityPool DEX produksi?**
+A: Tidak. Itu pool constant-product sederhana untuk testnet, menggunakan native tPOTv3 sebagai quote asset, tanpa biaya swap dan tanpa perlindungan oracle/MEV atau manajemen likuiditas produksi.
 
----
+**Q: Apakah kontrak siap mainnet?**
+A: Tidak. Diperlukan pool produksi terintegrasi, cost basis untuk distribusi awal, batas VWAP yang scalable, aturan final untuk transfer/lock/siklus harga, penutupan bypass penjualan, pengujian lebih lengkap, dan audit keamanan independen.
 
-## D. Security
+## E. Development dan deployment
 
-**Q: How is rugpull prevented?**
-A: Liquidity is locked, minting is permanently disabled after launch, and the project creators are subject to the same rules as everyone else.
+**Q: Jaringan testnet apa yang digunakan?**
+A: Portaldot V3 EVM, chain ID `420420777`.
 
-**Q: Does the system guarantee price won't drop?**
-A: NO. The system governs HOW profits are released, it does NOT guarantee price always rises. Price remains free to move with the market.
+**Q: Bagaimana mengecek deploy tanpa transaksi?**
+A: Isi `.env` secara lokal dan jalankan `PREFLIGHT_ONLY=1 npm run deploy:portaldotv3`. Jangan pernah membagikan private key atau seed phrase.
 
-**Q: How is trigger manipulation prevented?**
-A: The trigger uses the 24h volume-weighted average price, not spot price. A few minutes of spike won't activate it.
-
-**Q: What happens if there are no more buyers?**
-A: Everyone still exits gradually. Nobody gets the absolute top, but nobody gets zero either. The average outcome is far better than in a normal market where latecomers get almost nothing.
-
----
-
-## E. Technical & Deployment
-
-**Q: What network is it built on?**
-A: Portaldot V3 (EVM), Chain ID 420420777. Contracts written in Solidity ^0.8.24, fully compatible with the EVM ecosystem.
-
-**Q: Why size-optimized compiler settings?**
-A: PortaldotV3 (pallet-revive) charges a storage deposit of ~0.08 tPOTv3 per byte of deployed code. Using optimizer runs=1, viaIR=true, EVM shanghai, and no metadata minimizes deployment cost.
-
-**Q: How do I fund my EVM wallet for deployment?**
-A: Use the Node Console's Developer -> Runtime calls -> `reviveApi.accountId` to map your H160 (0x...) address to its SS58 (5...) address, then send test tPOTv3 to that SS58 address. Do NOT send directly to the H160 address.
-
-**Q: What's the deploy command?**
-A: `npm run deploy:portaldotv3` (uses hardhat.config.cjs with network `portaldotv3Testnet`).
-
-**Q: Can it integrate with DEXes like Uniswap?**
-A: Yes. The contract is designed so the DEX pool calls `recordBuy`, `recordPrice`, and `validateWithdraw`. A mock pool is included for testing.
-
-**Q: What's needed before mainnet?**
-A: Integration with a real DEX, third-party security audit, and a user-facing DApp that displays each user's position.
-
----
-
-## F. Conclusion
-
-**Q: What is the core change FairDot introduces?**
-A: It rewrites the memecoin market rulebook - from "the fastest exits wins" to "everyone who enters, whenever they enter, grows together."
-
-**Q: What is the key message?**
-A: "You may profit as much as you want - just don't destroy the ground everyone else stands on."
+**Q: Apakah test yang lulus berarti aman?**
+A: Tidak. Lima belas test lokal saat ini menguji beberapa alur prototipe; test suite bukan audit keamanan dan tidak membuktikan seluruh kasus produksi.

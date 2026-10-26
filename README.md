@@ -1,159 +1,73 @@
-# FairDot - Fair & Protected Memecoin Trading Platform
+# FairDot — Testnet Prototype
 
-> **Portaldot Hacker House 2026 | Track: Ecosystem DApps**
-> Built on **Portaldot V3 (EVM)** - Chain ID: `420420777`
-> Deployment config matches the proven reference setup (size-optimized, EVM shanghai, no metadata).
+FairDot is an experimental ERC-20 prototype for testing holder-specific cost basis, a 5× profit-protection trigger, gradual release, and pool-integrated withdrawal limits. The current branch is intended for **local testing and Portaldot testnet only**. It is not audited and is not ready for mainnet or real-value use.
 
----
+## Current rules implemented
 
-## The Problem
+- A holder's average entry price is the **token-amount-weighted cost basis**: total quote value invested divided by tracked token amount. Two equal buys of 1,000 tokens at prices 1 and 3 produce an average entry price of 2.
+- The protection trigger compares the holder's entry price with a 24-hour volume-weighted average price (VWAP).
+- At a ratio below 5×, the holder's full balance is reported withdrawable. At or above 5×, principal tokens are calculated using the same effective VWAP; profit is released linearly over 10 days after the lock is activated.
+- The lock can be activated permissionlessly, and the configured pool starts it before a protected sell. A position's timer starts on activation, not automatically at the exact price crossing.
+- The contract accepts contract-address token flows only through the single configured pool. Wallet-to-wallet transfers between EOAs remain possible and transfer cost basis proportionally. Unapproved contract wallets, routers, and DEX pools are blocked.
+- An individual withdrawal worth more than 10% of current quote liquidity needs a schedule. The schedule is bound to a token amount and enforces 3 or 10 installments with the configured intervals. Transfers are blocked while a schedule is active.
+- Initial-supply/treasury tokens have no purchase cost basis and are not sellable through the pool until a legitimate buy records a position. The first liquidity seed is a separate owner-only operation and can happen only once.
 
-Today's memecoin market is broken:
-- When price moons, early holders dump everything at once -> price crashes in minutes
-- Late entrants are left holding the bag at massive losses
-- Even whales get rekt - they buy the top, then everyone else exits first
-- No fairness: **first out wins**, everyone else pays the price
+These rules are a prototype, not a guarantee that a holder can always recover principal at the price received on sale. The principal calculation uses VWAP, while actual execution price can differ because of slippage and market movement.
 
-## Our Solution
+## Important limitations before mainnet
 
-**FairDot** rewrites the rules:
-- ✅ Your **PRINCIPAL is ALWAYS freely withdrawable** - 100% of the time
-- 🔒 **Outsized profits** (>=5x above your entry price) are released **gradually - 10% per day over 10 days**
-- 📊 Protection trigger uses **24h volume-weighted average price** - cannot be manipulated by momentary spikes
-- 🐋 **Large withdrawals** are automatically staggered so they cannot drain liquidity
-- 🔗 **Entry price is inherited** on transfers - no reset by moving to a fresh wallet
+The current implementation has one configured pool, not a production DEX integration. Repeated small sells or splitting holdings among several EOAs can still evade a per-account, per-withdrawal stagger threshold. Wallet-to-wallet transfers preserve basis but do not combine withdrawal history across wallets. The initial supply and wallets that receive untracked tokens do not automatically receive a purchase cost basis and cannot sell those untracked tokens through the pool. Price history is stored in an ever-growing array, so its 24-hour scan is not yet bounded for high-volume production use. Lock behavior around repeated price cycles, transfers into positions with different lock times, and new buys during a lock needs additional specification and testing. No LP-lock mechanism is implemented.
 
-**Result:** Nobody can exit first and leave everyone else behind. Early holders, late entrants, and whales all share the upside fairly.
+The included `MockLiquidityPool` is a simple testnet constant-product pool using native tPOTv3 as quote asset. It has no swap fee, production oracle/MEV protections, or robust liquidity-management controls. Do not use it as a mainnet DEX. A formal audit and a production pool integration are required before any real-value deployment.
 
----
-
-## Core Mechanism
-
-### Protection Trigger (based on YOUR entry price)
-| Price Ratio (vs your entry) | Mode | Rule |
-|---|---|---|
-| < 5x | ✅ Normal | 100% freely withdrawable |
-| >= 5x | 🔒 Protection | Principal free; profit released 10%/day x 10 days |
-
-### Large-Withdrawal Stagger (liquidity protection)
-| Withdrawal Size vs Liquidity | Split |
-|---|---|
-| <= 10% | Instant |
-| 10%-30% | 3 installments, 8h apart |
-| > 30% | 10 installments, 1 day apart |
-
-### Weighted-Average Entry Price (Important Note)
-The entry price is computed as a **value-weighted average**, not a simple arithmetic average:
-
-```
-P_entry = Σ(Amount_i × Price_i) / Σ(Amount_i)
-```
-
-Where each buy's invested value is `Amount × Price / 10^18`.
-
-**Example:**
-- Buy 1,000 tokens @ price 1.0 -> invested value = 1,000
-- Buy 1,000 tokens @ price 3.0 -> invested value = 3,000
-- **Weighted-average entry = (1×1,000 + 3×1,000) / (1,000 + 1,000) = 2.5** (not 2.0)
-
----
-
-## PortaldotV3 Testnet Info
+## Portaldot V3 testnet
 
 | Setting | Value |
 | --- | --- |
-| Substrate RPC | `wss://test-node-v3.portaldot.dev` |
 | EVM RPC | `https://test-evm-rpc-v3.portaldot.dev` |
 | Chain ID | `420420777` |
-| Native token | `tPOTv3` (14 decimals on Substrate; EVM layer scales to 18) |
+| Native quote asset | `tPOTv3` |
 | Node Console | `https://node-console.portaldot.dev/` |
 
-**Funding EVM wallets:** Use the Node Console's Developer -> Runtime calls -> `reviveApi.accountId` to map the Portaldot wallet's H160 address to its SS58 address, then send test tPOTv3 to that SS58 address. **Do not transfer native funds directly to an H160 address.**
+For the EVM account's native balance, map its H160 address to the corresponding SS58 account using the Portaldot Node Console and fund that account as documented by Portaldot. Never share a private key or seed phrase.
 
-**Storage deposits:** PortaldotV3 (pallet-revive) charges a storage deposit of roughly 0.08 tPOTv3 per byte of deployed code. This contract is therefore size-optimized: `optimizer runs=1`, `viaIR=true`, `evmVersion=shanghai`, no metadata.
-
----
-
-## Quick Start
+## Local setup
 
 ```bash
-git clone https://github.com/yukensimi/fairdot.git
+git clone --branch fix/fairdot-concept-accounting https://github.com/yukensimi/fairdot.git
 cd fairdot
-npm install
-cp .env.example .env   # fill in your PRIVATE_KEY (0x...)
+npm ci
 npm run compile
-npm run test
-npm run deploy:portaldotv3
+npm test
 ```
 
-To check the target chain, deployer balance, and estimated deployment costs without sending transactions, run `PREFLIGHT_ONLY=1 npm run deploy:portaldotv3` after setting `.env`.
+For the deployed branch, the deploy script checks chain ID, balance, and estimated deployment costs. On the configured testnet, run a no-transaction check with:
 
----
-
-## Project Structure (matches proven reference layout)
-
-```
-fairdot/
-├── src/                          # Solidity sources (Foundry-style)
-│   ├── FairDot.sol               # Core contract - fair release system
-│   └── MockLiquidityPool.sol     # Mock DEX for testing
-├── scripts/
-│   └── deploy.cjs                # Deploy script (CommonJS, matches reference)
-├── test/
-│   └── FairDot.test.js           # Full test suite (14 tests, all passing)
-├── docs/
-│   ├── ARCHITECTURE.md           # Architecture diagram & flow
-│   ├── CONCEPT.md                # Concept & mathematical formulas
-│   └── QNA.md                    # Complete Q&A
-├── hardhat.config.cjs            # Hardhat config (size-optimized for PortaldotV3)
-├── foundry.toml                  # Foundry config (for local build/tests)
-├── remappings.txt                # Foundry remappings
-├── package.json
-├── .env.example
-├── .gitignore
-├── LICENSE
-└── README.md
+```bash
+PREFLIGHT_ONLY=1 npm run deploy:portaldotv3
 ```
 
----
+To seed liquidity during deployment, set **both** `INITIAL_LIQUIDITY_TOKEN_AMOUNT` and `INITIAL_LIQUIDITY_TPOT` in your local `.env`. For example, these are human-readable amounts, not secrets:
 
-## Deployment Steps
+```env
+INITIAL_LIQUIDITY_TOKEN_AMOUNT=1000000
+INITIAL_LIQUIDITY_TPOT=100
+```
 
-1. **Fund your EVM account:** Map your H160 address to SS58 via Node Console, send tPOTv3 to the SS58 address.
-2. **Set PRIVATE_KEY** in `.env` (must belong to the PortaldotV3 wallet's H160).
-3. **Compile:** `npm run compile`
-4. **Test:** `npm run test` (14 tests should pass)
-5. **Deploy:** `npm run deploy:portaldotv3`
-6. **Record:** Contract address, deploy block, transaction hash.
-7. **Configure:** Set pool address, enable trading, disable minting (done automatically by deploy script).
+With both values set, deployment sends an approval and initial-liquidity transaction, then disables minting and enables trading. These are real on-chain actions. If neither value is set, the script leaves trading disabled. The pool accepts an initial seed only once; verify the amounts and fund the wallet before running the live command.
 
----
+The preflight estimates contract deployment gas only. It cannot guarantee acceptance or include all runtime-specific storage/deposit charges and subsequent setup transactions. Do not run a real deployment until the source branch and its risks have been reviewed.
 
-## Hacker House Submission Checklist
+## Project files
 
-- [x] Complete smart contract with documentation
-- [x] Public GitHub repository
-- [x] Full README
-- [x] Architecture diagram (see `docs/ARCHITECTURE.md`)
-- [x] All 14 unit tests passing
-- [x] Deployment config matches proven reference (size-optimized)
-- [ ] Deploy to Portaldot testnet + record contract address & tx hash
-- [ ] Demo (<=3 min video or live DApp link)
-- [ ] Pitch deck (PDF) - problem, why Portaldot, proof of functionality, future plans
+- `src/FairDot.sol` — token, cost-basis accounting, approved-pool route, lock, and stagger validation.
+- `src/MockLiquidityPool.sol` — testnet-only constant-product pool.
+- `scripts/deploy.cjs` — Hardhat deployment and preflight.
+- `test/FairDot.test.js` — local integration tests.
+- `docs/CONCEPT.md` — formulas and scope.
+- `docs/ARCHITECTURE.md` — call flow and known trust assumptions.
+- `docs/QNA.md` — user-facing behavior and mainnet prerequisites.
 
----
+## Mainnet prerequisites
 
-## Disclaimer
-
-- This system governs **how profits are released**, it does **NOT** guarantee price will always rise
-- Memecoins remain high-risk assets - DYOR
-- This code is for hackathon / testnet purposes; requires third-party security audit before mainnet
-- Never share your seed phrase or private key with anyone
-
-## License
-
-MIT - see `LICENSE`.
-
-## Team
-
-Built for **Portaldot Hacker House 2026** on DoraHacks.
+Before mainnet, define and test the remaining tokenomics and bypass cases, replace the mock with an audited pool integration, bound the price-history computation, define cost basis for initial/treasury distributions, decide how lock schedules behave across multiple market cycles and mixed positions, and obtain an independent smart-contract audit. The current 15 local tests are not a security audit.
