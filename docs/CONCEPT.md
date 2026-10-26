@@ -1,89 +1,182 @@
-# FairDot — Formula dan Batasan Prototipe
+# FairDot — Concept & Mathematical Model
 
-## Tujuan
+## 1. Purpose
 
-FairDot menguji mekanisme cost basis per holder, pemicu proteksi 5×, pelepasan profit bertahap, dan batas penjualan yang ditegakkan oleh satu pool terdaftar. Ini masih prototipe testnet; jangan anggap klaim proteksi sebagai jaminan bahwa harga tidak turun atau pokok selalu dapat direalisasikan pada harga tertentu.
+FairDot explores a position-aware exit model for memecoin trading. Instead of treating every token in a wallet as identical for withdrawal purposes, the contract records token purchases, estimates the holder’s quote-denominated cost basis, and applies a time-based release rule to tracked gains after a defined price threshold is reached.
 
-## 1. Harga masuk rata-rata berbobot jumlah token
+The guiding idea is:
 
-Harga masuk adalah rata-rata biaya yang benar-benar dibayar per token:
+> **A holder’s purchase history should follow the position, and outsized gains should be released over time rather than all at once.**
 
-```text
-P_entry = Σ(tokenAmount_i × price_i) / Σ(tokenAmount_i)
-TotalInvested = Σ(tokenAmount_i × price_i / 10^18)
-P_entry = TotalInvested × 10^18 / TotalTrackedTokens
-```
+This is a market-rule experiment, not a guarantee that holders will recover their principal, realize a profit, or be able to sell at a particular price.
 
-`tokenAmount_i` menggunakan unit ERC-20 18 desimal, dan `price_i` adalah harga per token dalam unit quote yang diskalakan 1e18.
+## 2. Scope and terminology
 
-**Contoh:**
+The current implementation uses one configured contract pool and native `tPOTv3` as its quote asset. A **tracked position** is token inventory associated with buys recorded by that pool. **Untracked inventory** includes the initial distribution, owner-minted tokens, and other tokens without a recorded buy cost basis. Untracked inventory is not sellable through the pool as tracked inventory.
 
-- Beli 1.000 token pada harga 1: biaya 1.000 quote.
-- Beli 1.000 token pada harga 3: biaya 3.000 quote.
-- Total biaya 4.000 quote dibagi 2.000 token, sehingga `P_entry = 2,0`.
+The model distinguishes:
 
-Ini adalah rata-rata berbobot jumlah token dan cost basis per token. Contoh lama yang menghasilkan 2,5 tidak sesuai dengan definisi tersebut dan telah dihapus.
+- **Tracked tokens** — the quantity associated with recorded purchase cost.
+- **Total invested** — the accumulated quote-denominated cost basis reported by the pool.
+- **Average entry price** — total invested divided by tracked tokens.
+- **Effective price** — a recent pool price measure used to estimate principal and the protection ratio.
+- **Principal-equivalent tokens** — the number of tracked tokens whose current effective-price value equals the recorded cost basis. This is a token quantity, not a promise of quote-asset recovery.
 
-## 2. Harga efektif dan mode proteksi
+## 3. Cost-basis formula: token-quantity-weighted average
 
-`P_effective` pada prototipe adalah VWAP 24 jam dari trade points pool:
+For buys `i = 1 ... n`, let:
 
-```text
-P_effective = Σ(price × quoteVolume) / Σ(quoteVolume)
-Ratio = P_effective / P_entry
-```
+- `Aᵢ` = token amount bought in transaction `i`;
+- `Pᵢ` = pool-reported quote price per token for that buy;
+- `Cᵢ = Aᵢ × Pᵢ / 10¹⁸` = quote-denominated cost attributed to that buy.
 
-Pool harus merekam volume buy dan sell dalam **unit quote yang sama**. Jika tidak ada observasi segar, harga efektif tidak tersedia dan penjualan posisi tercatat ditolak sampai ada observasi baru; kontrak tidak lagi memakai harga yang usang tanpa batas waktu.
-
-| Rasio | Mode prototipe | Perilaku |
-|---|---|---|
-| `< 5×` | Normal | Seluruh saldo dilaporkan dapat ditarik |
-| `>= 5×` | Proteksi | Token pokok dihitung dari `TotalInvested / P_effective`; profit sisanya mengikuti jadwal lock |
-
-Konversi pokok pada prototipe juga memakai VWAP, bukan harga eksekusi swap. Karena harga swap aktual bisa berbeda akibat slippage dan perubahan pasar, ini belum menjamin jumlah quote yang diterima sama dengan nilai pokok.
-
-## 3. Pelepasan profit
-
-Setelah `activateLock(user)` dipanggil ketika rasio minimal 5×, kontrak mencatat jumlah profit dan waktu mulai. Profit dilepas linear selama 10 hari; pada hari ke-10 seluruh profit posisi dilaporkan tersedia.
-
-Timer dimulai saat fungsi aktivasi dipanggil, bukan otomatis pada detik persis harga melewati 5×. Pool mock memanggil aktivasi sebelum penjualan; fungsi juga dapat dipanggil siapa saja untuk holder. Semantik siklus harga berulang, pembelian tambahan saat lock aktif, serta penggabungan dua posisi dengan waktu lock berbeda masih perlu spesifikasi dan test tambahan sebelum mainnet.
-
-## 4. Transfer posisi
-
-Saat token berpindah antar-EOA, proporsi posisi dihitung terhadap saldo pengirim **sebelum** transfer:
+Then:
 
 ```text
-share = amountTransferred / balanceBeforeTransfer
-investedMoved = totalInvestedSender × share
-trackedTokensMoved = trackedTokensSender × share
+TotalInvested = Σ Cᵢ
+TrackedTokens = Σ Aᵢ
+AverageEntryPrice = TotalInvested × 10¹⁸ / TrackedTokens
 ```
 
-Cost basis penerima digabung berdasarkan total biaya dan total token terlacak. Transfer ke pool terdaftar adalah jalur penjualan dan basis token yang dijual dikurangi dari posisi pengirim, bukan diwariskan ke pool sebagai basis pembeli berikutnya.
-
-Jadwal stagger yang sedang aktif tidak dapat dipindahkan dengan transfer. Transfer ke/dari kontrak selain pool terdaftar diblokir. Ini membatasi composability: wallet kontrak, router, bridge, dan DEX lain tidak dapat memakai token kecuali desain/daftar integrasinya diperbarui.
-
-## 5. Stagger penjualan
-
-Pool membandingkan nilai satu permintaan penjualan dengan quote liquidity:
+Equivalently, ignoring fixed-point rounding:
 
 ```text
-L_ratio = withdrawalValue / totalQuoteLiquidity
-<= 10%       -> 1 bagian
->10% dan <=30% -> 3 bagian, jarak 8 jam
->30%         -> 10 bagian, jarak 1 hari
+AverageEntryPrice = Σ(Aᵢ × Pᵢ) / Σ(Aᵢ)
 ```
 
-Untuk jumlah besar, holder membuat jadwal atas jumlah token tertentu; pool hanya menerima installment sesuai jadwal. Ini masih berbasis permintaan/akun dan belum menutup bypass dengan banyak penjualan kecil atau memecah posisi ke beberapa alamat. Karena itu, klaim “tidak ada yang dapat menguras pool” belum dapat dibuat.
+This is weighted by the **number of tokens acquired**, not by the amount of money spent on each purchase and not by a simple average of transaction prices.
 
-## 6. Pool terdaftar dan cakupan B
+### Example
 
-Token hanya mengizinkan perpindahan yang melibatkan kontrak `liquidityPool` terdaftar; hanya satu pool dapat dikonfigurasi pada prototipe ini dan tidak dapat diganti setelah trading diaktifkan. Transfer EOA-ke-EOA tetap boleh. Kebijakan ini menutup jalur interaksi langsung dengan kontrak DEX yang tidak disetujui, tetapi tidak mencegah transaksi privat antar-wallet dan tidak menggabungkan batas penjualan lintas-wallet.
+- Buy 100 tokens at 1 quote unit per token: cost = 100 quote units.
+- Buy 100 tokens at 3 quote units per token: cost = 300 quote units.
+- Total cost = 400 quote units; total tracked tokens = 200.
+- Average entry price = `400 / 200 = 2` quote units per token.
 
-## 7. Belum diimplementasikan / prasyarat mainnet
+The example illustrates the selected cost-basis rule: the average entry price is the total quote cost divided by the total token quantity.
 
-- Liquidity lock/vesting LP tidak diimplementasikan.
-- Token awal/treasury atau penerima token tanpa record buy tidak memiliki cost basis pembelian otomatis.
-- Riwayat harga berupa array yang terus bertambah; pemindaian VWAP perlu dibatasi atau diganti agregasi yang aman untuk volume produksi.
-- Pool mock adalah contoh testnet tanpa fee dan tanpa mekanisme oracle/MEV atau manajemen likuiditas produksi.
-- Perlu definisi final untuk lock pada beberapa siklus harga, tambahan pembelian, dan penggabungan posisi.
-- Perlu audit keamanan independen dan pengujian semua jalur pasar sebelum mainnet.
+## 4. Effective price and protection ratio
+
+The pool records a price and quote volume for each buy and sell. FairDot computes a 24-hour quote-volume-weighted average from the price observations recorded during that period:
+
+```text
+EffectivePrice = Σ(Priceⱼ × QuoteVolumeⱼ) / Σ(QuoteVolumeⱼ)
+```
+
+If the 24-hour window contains no observations, the contract can use the latest recorded price only while that observation is no more than 24 hours old. If price data is unavailable or too old, the effective price is zero and tracked tokens are not withdrawable through the normal pool path until fresh observations exist.
+
+For a holder with a recorded entry price:
+
+```text
+ProtectionRatio = EffectivePrice / AverageEntryPrice
+```
+
+The implementation uses fixed-point arithmetic and activates the protection condition at a ratio of `5×` or greater.
+
+| Protection ratio | Tracked-token rule |
+| --- | --- |
+| Below `5×` | All tracked tokens are withdrawable, subject to fresh price data and successful pool execution. |
+| `5×` or greater | The principal-equivalent tracked token quantity remains available; tracked profit tokens release over time. |
+
+The 24-hour weighting smooths observations; it does not make the price manipulation-proof. The price history comes from the configured pool, not an independent oracle.
+
+## 5. Principal-equivalent tokens and profit tokens
+
+At the current effective price:
+
+```text
+PrincipalTokens = min(TrackedTokens, TotalInvested × 10¹⁸ / EffectivePrice)
+ProfitTokens    = TrackedTokens − PrincipalTokens
+```
+
+The `min` prevents the principal quantity from exceeding the tracked balance. These values are calculated in token units. They do not promise that selling those tokens will return the same amount of quote asset, because pool depth, price impact, rounding, and market conditions affect execution.
+
+### Example at the protection threshold
+
+Assume a position has 200 tracked tokens and a total cost basis of 400 quote units. Its average entry price is 2 quote units per token. If the effective price reaches 10 quote units, the ratio is `5×`:
+
+```text
+PrincipalTokens = 400 / 10 = 40 tokens
+ProfitTokens    = 200 − 40 = 160 tokens
+```
+
+The 40 principal-equivalent tokens are available under the contract’s withdrawal rules. The 160 profit tokens are subject to the release schedule below.
+
+## 6. Profit-release schedule
+
+The configured release duration is ten days. The first protected sell attempt routed through the configured pool starts the holder’s timer if no timer is already active. During the schedule, the amount released increases linearly:
+
+```text
+ReleasedProfit(t) = LockedProfitAtActivation × elapsedTime / 10 days
+```
+
+The released amount is capped by the holder’s currently calculated profit-token balance. At ten days, the currently calculated tracked profit-token amount is treated as released.
+
+For the example above, if the price and position remain unchanged:
+
+| Elapsed time | Principal-equivalent tokens | Approx. released profit tokens | Approx. total withdrawable tracked tokens |
+| --- | ---: | ---: | ---: |
+| At activation | 40 | 0 | 40 |
+| 1 day | 40 | 16 | 56 |
+| 5 days | 40 | 80 | 120 |
+| 10 days | 40 | 160 | 200 |
+
+These figures illustrate token accounting only. They do not account for pool slippage or the separate large-withdrawal schedule.
+
+### State changes that matter
+
+- A fresh price below the `5×` threshold clears the active lock and makes the tracked balance withdrawable under normal mode.
+- A new recorded buy resets the aggregate position’s lock timer state; a later protected sell attempt may start a new schedule for the combined position.
+- Transfers move tracked and untracked inventory proportionally. Transferred locked-profit accounting follows the transferred tracked position.
+- A stale or unavailable effective price prevents a normal pool sale until fresh price observations become available.
+
+These rules make the behavior explicit, but repeated price cycles and mixed-age positions remain important cases for further specification and testing.
+
+## 7. Large-withdrawal schedule
+
+The pool reports its quote reserve to the token contract. For an intended withdrawal, FairDot estimates its quote value using the effective price and compares it with the recorded quote reserve:
+
+```text
+WithdrawalValue = TokenAmount × EffectivePrice / 10¹⁸
+WithdrawalRatio = WithdrawalValue / QuoteReserve
+```
+
+The configured thresholds are:
+
+| Intended withdrawal value | Requirement |
+| --- | --- |
+| `≤ 10%` of quote reserve | One immediate sale; no schedule required. |
+| `> 10%` and `≤ 30%` | Three equal installments, with 8 hours between installments. |
+| `> 30%` | Ten installments, with 24 hours between installments. |
+
+A holder must explicitly create a schedule for an amount that requires one. Each installment must match the scheduled amount, and wallet transfers are blocked while that holder has an active schedule.
+
+The thresholds are evaluated for a specific wallet and withdrawal. Repeated smaller sales or splitting holdings across wallets are not fully prevented by this design. A schedule is not a global queue and does not reserve a stable price or quote amount.
+
+## 8. Transfer policy: the single-approved-pool model
+
+FairDot follows the selected **Policy B**:
+
+1. Only the configured pool can move tokens into or out of its own address as part of market transactions.
+2. Contract-address trading routes other than that pool are rejected.
+3. Ordinary wallet-to-wallet transfers are permitted and carry the position accounting proportionally.
+4. A transfer does not create a buy record or cost basis for untracked tokens.
+5. Tokens without recorded cost basis cannot be sold through the pool as tracked tokens.
+
+This policy is intentionally less composable than a standard unrestricted ERC-20 market. It is designed to keep this implementation’s accounting tied to a single known pool, not to support arbitrary routers, exchanges, or contract wallets.
+
+## 9. Launch and supply behavior
+
+The initial supply and any tokens minted before minting is disabled are recorded as untracked inventory. The owner may disable minting once; after that, the contract has no function to re-enable it. Trading can only be enabled after a pool is configured, initial liquidity is confirmed, and minting is disabled.
+
+The deployment script can optionally perform the initial seed if both `INITIAL_LIQUIDITY_TOKEN_AMOUNT` and `INITIAL_LIQUIDITY_TPOT` are supplied. Without both values, it leaves trading disabled and does not seed or disable minting.
+
+## 10. Design boundaries to keep visible
+
+FairDot’s rules apply to the configured pool and the contract’s recorded state. They do not ensure that there will be buyers, that the pool has enough quote liquidity, or that any sale will execute at the displayed effective price. The mock pool has no swap fee and is not an oracle or a general-purpose DEX.
+
+Additional behavior that should remain explicit in the product and further tests includes repeated small withdrawals, wallet splitting, repeated price cycles, mixed-age positions, pool-reserve changes after schedule creation, unbounded growth of the price-history array, owner/pool trust, and lack of a liquidity-provider lock mechanism.
+
+## 11. Product statement
+
+FairDot’s intended contribution is not “everyone is guaranteed to exit profitably.” It is a different set of transparent, position-aware rules for token withdrawals routed through one configured pool: record the purchase history, estimate principal in token units, and release outsized gains over time.
