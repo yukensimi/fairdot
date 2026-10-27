@@ -20,7 +20,11 @@ async function main() {
 
   const balance = await provider.getBalance(deployer.address);
   const feeData = await provider.getFeeData();
-  const feePerGas = feeData.maxFeePerGas ?? feeData.gasPrice;
+  const maxFeePerGas = feeData.maxFeePerGas ?? null;
+  const gasPrice = feeData.gasPrice ?? null;
+  const maxPriorityFeePerGas = feeData.maxPriorityFeePerGas ?? null;
+  const feePerGas = maxFeePerGas ?? gasPrice;
+  const feeRateSource = maxFeePerGas != null ? "maxFeePerGas" : "gasPrice";
   if (feePerGas == null) throw new Error("RPC did not return a usable gas price.");
 
   const factoryArtifact = await hre.ethers.getContractFactory("FairDotFactory", deployer);
@@ -41,10 +45,17 @@ async function main() {
   console.log("Deployer:", deployer.address);
   console.log("Chain ID:", network.chainId.toString());
   console.log("Balance:", hre.ethers.formatEther(balance), "tPOTv3");
+  const formatFeeRate = (value) => value == null
+    ? "unavailable"
+    : `${value.toString()} wei/gas (${hre.ethers.formatEther(value)} tPOTv3/gas)`;
+  console.log("RPC maxFeePerGas:", formatFeeRate(maxFeePerGas));
+  console.log("RPC gasPrice:", formatFeeRate(gasPrice));
+  console.log("RPC maxPriorityFeePerGas:", formatFeeRate(maxPriorityFeePerGas));
+  console.log(`Fee rate selected for estimate (${feeRateSource}):`, formatFeeRate(feePerGas));
   console.log("\n=== Shared Factory deployment preflight ===");
   console.log(`Factory bytecode: ${runtimeBytes}/${MAX_RUNTIME_CODE_BYTES} runtime bytes; ${initcodeBytes}/${MAX_INITCODE_BYTES} initcode bytes`);
-  console.log("Factory + Registry deployment gas:", gasLimit.toString());
-  console.log("Estimated maximum fee:", hre.ethers.formatEther(estimatedFee), "tPOTv3");
+  console.log("RPC estimateGas limit:", gasLimit.toString());
+  console.log("Estimated maximum fee (estimateGas × selected fee rate):", hre.ethers.formatEther(estimatedFee), "tPOTv3");
   console.log("Fee estimate + 20% buffer:", hre.ethers.formatEther(bufferedFee), "tPOTv3");
   if (balance < bufferedFee) {
     console.warn("WARNING: balance is below the estimated fee plus buffer. Deployment may be rejected.");
