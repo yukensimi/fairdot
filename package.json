@@ -6,7 +6,8 @@
   "scripts": {
     "compile": "hardhat compile",
     "test": "hardhat test",
-    "deploy:portaldotv3": "hardhat run scripts/deploy.cjs --network portaldotv3Testnet"
+    "deploy:portaldotv3": "hardhat run scripts/deploy.cjs --network portaldotv3Testnet",
+    "create:meme:portaldotv3": "hardhat run scripts/createMeme.cjs --network portaldotv3Testnet"
   },
   "keywords": [
     "memecoin",

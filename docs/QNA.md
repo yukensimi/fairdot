@@ -1,164 +1,105 @@
 # FairDot — Frequently Asked Questions
 
-## A. Purpose and market behavior
+## Status and product scope
 
-### What problem is FairDot exploring?
+This Q&A describes the protocol behavior implemented in the current repository and covered by local regression tests. It does not claim a network deployment, independent audit, or production readiness.
 
-In a typical memecoin pool, a large exit can reduce quote liquidity and move the price quickly. Later sellers may receive less favorable execution. FairDot explores position-aware withdrawal rules and optional installment schedules for sales routed through one configured pool.
+> FairDot is designed to make memecoin exit rules more transparent and reduce the impact of large sell orders through one configured pool. It does not guarantee stable prices, recovery of the same quote value as a holder’s cost basis, or profit for every holder.
 
-### What changes with FairDot?
+### What is FairDot?
 
-The contract records each pool-observed buy and its cost basis, then applies a holder-specific price-ratio rule. When the effective price reaches the protection threshold, tracked profit tokens are released over time. Large withdrawals can also require an explicit schedule. These mechanics change how certain exits are processed; they do not guarantee that everyone will share gains or be able to sell.
+FairDot is intended as a reusable on-chain protocol, not one meme token or website. The repository includes FairDot Factory/Registry contracts intended to create one token and one canonical pool per memecoin. Once a shared Factory is deployed, independent platforms can read the same Registry entry and interact with the same token and pool addresses. No Factory deployment is claimed here.
 
-### What is the project’s key message?
+### Can FairDot enforce that trading happens through a particular platform?
 
-> “You may profit as much as you want—just don’t destroy the ground everyone else stands on.”
+No. Platform identity itself cannot be enforced on-chain. Any user interface calling a token’s canonical pool follows the same pool rules, whether it is Platform A, Platform B, or another interface. External AMM pool/router contract routes are intended to be rejected by the target design.
 
-This is a design goal, not a promise about market outcomes.
+## Entry, lots, and protection
 
-## B. Entry price, principal, and profit
+### How is entry price calculated?
 
-### How is my entry price calculated?
-
-FairDot calculates average entry price as total quote-denominated cost divided by the number of tracked tokens:
+For each tracked position lot, entry price is the quote actually paid divided by tracked tokens received:
 
 ```text
-AverageEntryPrice = TotalInvested / TrackedTokens
+EntryPricePerLot = ActualQuotePaid / TrackedTokensReceived
 ```
 
-It is a token-quantity-weighted average. For example, 100 tokens bought at 1 quote unit and 100 tokens bought at 3 quote units produce a 2-quote-unit average entry price.
+Consecutive purchases by a holder are grouped by UTC calendar day only while adding to that holder’s latest open purchase lot. A checkpointed or transferred lot is not a merge candidate; a later purchase creates a separate lot.
 
-### When does the protection rule apply?
+### What happens when I transfer only part of a position?
 
-The ratio is based on the holder’s own recorded average entry price:
+EOA-to-EOA transfers remain allowed and carry or split each affected lot’s basis, timer, and accounting proportionally. Lots with different timers are not merged. Sales consume the oldest eligible lot first (FIFO). A transfer does not turn a gift, airdrop, or other untracked tokens into tracked tokens with a new cost basis.
 
-- Below `5×`, all tracked tokens are eligible under the normal withdrawal calculation, subject to fresh price data and pool execution.
-- At or above `5×`, the amount of tracked tokens estimated to represent principal remains available; tracked profit tokens are released over ten days after a protected sell attempt starts the timer.
+### When does profit protection apply?
 
-### Is my principal guaranteed to be recoverable?
-
-No. The contract calculates a principal-equivalent **token amount** from recorded cost basis and the effective price. It does not guarantee a quote-currency refund. Pool depth, price impact, the effective price, and the availability of buyers all affect realized proceeds.
-
-### How are principal-equivalent tokens and profit tokens estimated?
+The target uses a 24-hour quote VWAP from the canonical pool. Profit protection requires both a minimum observed 24-hour quote volume and a price ratio of at least `5×` for the applicable lot:
 
 ```text
-PrincipalTokens = min(TrackedTokens, TotalInvested / EffectivePrice)
-ProfitTokens = TrackedTokens − PrincipalTokens
+MinimumVolume = max(configured percentage × InitialQuoteSeed,
+                    configured absolute tPOT)
+ProtectionRatio = VWAP24h / LotEntryPrice
 ```
 
-The contract uses 18-decimal fixed-point scaling. Only tokens associated with a recorded buy are included in this calculation.
+The numeric inputs are selected after the initial quote seed is chosen and fixed before deployment. Before the volume threshold is met, tracked tokens are not profit-locked, but they remain subject to the large-sale schedule. Pool-reported price and volume are not an independent oracle and cannot eliminate manipulation or market risk.
 
-### What happens after the protection timer starts?
+### Who starts a protection checkpoint?
 
-The timer starts when the configured pool observes the first protected sell attempt for a position without an active timer. Profit release increases linearly over ten days. At ten days, the currently calculated tracked profit amount is treated as released. A new buy resets the aggregate position’s lock state; a later protected sell can begin a new schedule.
+A holder can call `pool.checkpointLock()` separately to start protection before selling. The pool also checkpoints the caller during a sell attempt, so a holder cannot bypass a qualified lock simply by skipping the separate call. If the requested amount is not eligible, the sale is deferred without reverting the checkpoint. The pool alone calls the token checkpoint. A checkpointed lot becomes sealed; a later purchase forms a new lot.
 
-### What if the price falls below the threshold?
+### How quickly is profit released?
 
-When a fresh effective price is below `5×`, the active lock state is cleared and all tracked tokens become eligible under normal mode. A stale price is not treated as a reliable fallback: if the latest observation is older than 24 hours and there is no in-window volume, the effective price is unavailable and a normal pool sale is not eligible.
+The target releases profit linearly at 10% per day over 10 days. A fresh price below `5×` releases remaining profit. Profit that has already been released never re-locks. These rules define eligibility, not guaranteed sale proceeds.
 
-## C. Large withdrawals and transfers
+### What happens if trading stops?
 
-### Are large withdrawals split automatically?
+If no trade occurs for more than 24 hours, the profit-release clock pauses; profit previously released remains eligible. If there is no trade for more than 7 days, the target enters `STALE_EMERGENCY_MODE`: any still-open lots are checkpointed against the last valid price, profit stays locked, and that price is explicitly used for principal calculations. The withdrawal cap is 10% of tracked balance at emergency entry per rolling 24 hours. Unused quota does not accrue. Emergency eligibility is not a guaranteed payout.
 
-No. A large sale without a schedule is rejected. The holder must create a schedule for the exact token amount first:
+### Is my principal guaranteed to be returned?
 
-| Withdrawal value relative to the pool quote reserve | Required schedule |
+No. Cost basis is an accounting measure. FairDot does not guarantee recovery of the same quote value as the holder’s cost basis. Price movement, liquidity, price impact, lack of buyers, and execution can all reduce proceeds or prevent a sale.
+
+## Large sales and market boundaries
+
+### Are large sales split automatically?
+
+The target automatically creates a schedule based on estimated quote output of the **full request** (principal plus profit) divided by the pool quote reserve at schedule start:
+
+| Estimated full-request output / quote reserve | Target schedule |
 | --- | --- |
-| Up to and including 10% | No schedule |
-| More than 10%, up to and including 30% | 3 installments, 8 hours apart |
-| More than 30% | 10 installments, 24 hours apart |
+| `≤ 10%` | One part, attempted immediately |
+| `> 10%` through `30%` | Three parts, 8 hours apart |
+| `> 30%` | Ten parts, 24 hours apart |
 
-The schedule is per wallet and tied to token quantities. It does not promise a fixed quote amount or a fixed execution price for each installment.
+The first part is attempted immediately. After a successful one-part sale at or below 10%, the same address must wait 8 hours before another sale. For larger schedules, part sizes are fixed in token units, and any rounding remainder goes to the last part. Each installment rechecks eligibility. An ineligible installment waits; the interval to the next installment begins only after a successful one. Other sales are blocked while a schedule is active. The holder may cancel remaining installments, but cooldown since the last successful installment persists. Later installments require holder transactions; no keeper is included in the target design.
 
-### Can I reset my entry price by transferring tokens to a new wallet?
+A schedule is per holder, not a global queue. It does not reserve quote liquidity or guarantee execution price or payout.
 
-Ordinary wallet-to-wallet transfers carry tracked and untracked inventory and position basis proportionally. A transfer does not record a new purchase, so it is not intended to reset the entry price. However, this accounting is not a complete identity or anti-splitting system: splitting holdings among wallets can weaken per-wallet withdrawal thresholds.
+### Can splitting wallets evade the rules?
 
-### Which tokens can be sold through the pool?
+Transfers carry position history, but the target does not include KYC or anti-sybil controls. The 8-hour cooldown is address-based; coordinated or separately funded wallets may still divide activity across addresses. The rules cannot ensure that multiple EOAs are one identity or prevent every form of coordination. A global sale queue is not part of v1.
 
-Only tracked tokens with a recorded pool buy basis can be sold as a position. Initial supply, owner-minted tokens, and other inventory without recorded purchase cost are untracked and are not sellable through the pool as tracked tokens. When users buy from the pool, the pool’s untracked inventory is reduced and a new tracked position is recorded for the buyer.
+### Can I trade OTC or on another chain?
 
-### Can FairDot be traded through another DEX or router?
+The target rules govern supported interactions with the canonical pool, not OTC or other off-chain transactions. Unregistered cross-chain representations are not prevented. FairDot does not prevent price losses or rug pulls.
 
-The current implementation supports one configured pool only. Contract-address market routes other than that pool are rejected. The implementation is therefore less composable than an unrestricted ERC-20 market; a different integration would need to preserve the accounting and withdrawal checks.
+### Are team tokens sellable through the pool?
 
-### Does the schedule guarantee the pool cannot be drained?
+In target v1, team allocation follows separately published vesting and is not sellable through the pool. Gifts and airdrops do not gain recorded cost basis merely by being received.
 
-No. It can require installments for a single withdrawal that exceeds the configured thresholds, but repeated smaller sales or splitting positions across multiple wallets are not fully prevented. The schedule is not a global queue and does not guarantee reserve levels or price stability.
+### Can the parameters be changed after launch?
 
-## D. Price, liquidity, and risk
+The target fixes the numeric inputs after the initial quote seed is chosen and before deployment. One canonical pool and v1 parameters are immutable after trading starts. Changing rules requires a new token/contract and voluntary migration.
 
-### Does the 24-hour VWAP prevent price manipulation?
+## V1 limitations and project context
 
-No. The 24-hour quote-volume-weighted average smooths the pool’s recorded observations and can reduce sensitivity to a single short-lived price point. It is not an independent oracle and cannot prevent manipulation. The configured pool supplies the prices and volumes used by the token contract.
+### What is intentionally out of scope?
 
-### What happens if there are no buyers?
+V1 does not include a global queue, KYC/anti-sybil controls, LP lock, keeper, or guarantee against rug pulls. A canonical-pool rule set cannot guarantee liquidity, stable prices, successful exits, cost-basis recovery, or profit for every holder.
 
-FairDot cannot create demand or guarantee a sale. If the pool has insufficient quote liquidity or no favorable counterparty flow, a transaction may fail or execute at a substantially different price than expected. The rules do not guarantee that every holder can exit gradually, recover principal, or avoid losses.
+### What is the project context?
 
-### Does FairDot guarantee stable or rising prices?
+FairDot was developed for Portaldot Hacker House 2026 on DoraHacks, under Ecosystem DApps. That context does not imply deployment status, an audit, or investment endorsement.
 
-No. The contract governs withdrawal eligibility and timing for supported pool transactions; it does not control demand, market sentiment, token value, or the quote asset’s value.
+## Disclaimer
 
-### Does FairDot prevent a rug pull or lock liquidity?
-
-No. The current project does not implement a liquidity-provider token lock and does not provide a general rug-pull guarantee. The owner and configured pool are important trust boundaries. Review the deployed code, pool configuration, and liquidity arrangements independently.
-
-### What are the main implementation boundaries?
-
-The current implementation has one mock pool, no swap fee, a pool-supplied price history that grows over time, and per-wallet schedules. Repeated small withdrawals, wallet splitting, mixed-age positions, repeated price cycles, and changes in pool reserves after schedule creation require careful evaluation. The mock pool is not a general-purpose exchange.
-
-## E. Portaldot and development
-
-### Which network and language does the project target?
-
-The deployment configuration targets Portaldot V3 EVM, chain ID `420420777`. The contracts use Solidity `0.8.24` and OpenZeppelin ERC-20, ownership, and reentrancy utilities.
-
-### Why are the compiler settings size-conscious?
-
-The build uses optimizer runs `1`, `viaIR: true`, EVM target `shanghai`, and disables Solidity metadata output. These settings follow the project’s reference-oriented deployment configuration. Actual gas and runtime deposits depend on the network; the preflight is an estimate, not a fee guarantee.
-
-### How do I configure and run the project?
-
-```bash
-npm ci
-cp .env.example .env
-npm run compile
-npm test
-```
-
-Set `PORTALDOTV3_TESTNET_RPC_URL` and `PRIVATE_KEY` in your private `.env` file. Never commit the file or share the private key.
-
-### What does the deployment preflight do?
-
-```bash
-PREFLIGHT_ONLY=1 npm run deploy:portaldotv3
-```
-
-It checks the configured chain and estimates contract-deployment gas without sending a transaction. It does not fully include runtime deposits or every setup transaction.
-
-### How does the deployment script seed and enable trading?
-
-To seed the pool automatically, set both `INITIAL_LIQUIDITY_TOKEN_AMOUNT` and `INITIAL_LIQUIDITY_TPOT` to the intended seed amounts. The script approves the token transfer, seeds the pool, confirms the seed, disables minting, and enables trading. If the variables are omitted, the script deploys and configures the contracts but leaves trading disabled; it does not seed the pool or disable minting.
-
-### How can an EVM account be funded?
-
-Use Portaldot’s current official instructions for mapping an EVM H160 account to its corresponding native account and funding it. Confirm the mapping and destination on the network’s official interface before sending assets. Never send funds to an address based only on an unverified conversion.
-
-### How many local tests are included?
-
-The repository currently has 15 passing local tests. They cover core contract behaviors but do not prove the absence of bugs or replace an independent security review.
-
-## F. Fairness and design intent
-
-### Does FairDot favor early holders, late entrants, or whales?
-
-The protection ratio is relative to each wallet’s recorded entry price, so the same threshold is applied to positions with different purchase prices. That does not guarantee equal outcomes: purchase timing, token amount, market liquidity, execution price, and position history still matter.
-
-### Is FairDot anti-wealth?
-
-No. The design does not set a cap on potential gains. It experiments with limits on the timing and size of exits routed through its configured pool.
-
-### What should a reader take away?
-
-FairDot is a proposal for more deliberate, position-aware exits—not a promise that nobody can sell first, that the market will remain stable, or that all participants will profit. For equations and implementation details, read [Concept & Mathematical Model](CONCEPT.md) and [Architecture & Transaction Flows](ARCHITECTURE.md).
+FairDot is experimental software and a market-mechanics design, not financial advice. The target rules do not guarantee stable prices, liquidity, quote recovery, successful execution, or profit. Verify the repository’s actual capabilities through code review and tests; tests alone do not replace independent security review.

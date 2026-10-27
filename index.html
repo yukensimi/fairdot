@@ -347,7 +347,7 @@
     <div class="hero-content">
       <div class="hero-badge">PORTALDOT HACKER HOUSE 2026 · ECOSYSTEM DAPPS</div>
       <h1>Launch & Trade Memecoins <span class="gradient">Without Getting Rekt</span></h1>
-      <p>FairDot is a protection protocol. Launch your own memecoin with built-in anti-dump protection, or trade protected tokens. Your principal is always yours.</p>
+      <p>FairDot is a protocol for transparent memecoin exit rules. A shared Factory creates each token and its canonical pool; protection rules do not guarantee price stability, cost-basis recovery, or profit.</p>
       <div class="hero-actions">
         <button class="btn-primary" id="connectBtnHero">Launch App</button>
         <button class="btn-secondary" onclick="document.getElementById('features').scrollIntoView({behavior:'smooth'})">Learn More</button>
@@ -368,12 +368,12 @@
     <h2 class="section-title reveal">Why <span class="gradient">FairDot</span>?</h2>
     <p class="section-subtitle reveal">A protocol, not just a token. Any memecoin can integrate FairDot protection.</p>
     <div class="feature-grid">
-      <div class="feature-card reveal"><div class="feature-icon">🚀</div><h3>Launch Your Meme</h3><p>Deploy your own memecoin in seconds with FairDot protection baked in. No code needed — just fill the form.</p></div>
-      <div class="feature-card reveal"><div class="feature-icon">🔒</div><h3>Principal Always Free</h3><p>Your initial investment is 100% withdrawable at any time. No locks, no delays, no excuses.</p></div>
-      <div class="feature-card reveal"><div class="feature-icon">📈</div><h3>Gradual Profit Release</h3><p>Profits above 5x release 10% per day over 10 days. Nobody can dump all at once.</p></div>
-      <div class="feature-card reveal"><div class="feature-icon">🐋</div><h3>Whale Staggering</h3><p>Large withdrawals (>10% liquidity) auto-split into installments. Pool never drains in one shot.</p></div>
-      <div class="feature-card reveal"><div class="feature-icon">🔗</div><h3>Entry Price Inheritance</h3><p>Transfer tokens? Your entry price moves with them. No resetting by switching wallets.</p></div>
-      <div class="feature-card reveal"><div class="feature-icon">🛡️</div><h3>Rugpull-Proof</h3><p>Minting permanently disableable, liquidity locked, creators subject to same rules as everyone.</p></div>
+      <div class="feature-card reveal"><div class="feature-icon">🚀</div><h3>Factory-Based Launches</h3><p>Create a token and canonical pool through a shared Factory. A launch requires a native-quote seed and transaction gas.</p></div>
+      <div class="feature-card reveal"><div class="feature-icon">🔒</div><h3>Principal Accounting</h3><p>FairDot tracks cost basis per lot. Withdrawal eligibility still depends on the rules, pool liquidity, market price, and execution.</p></div>
+      <div class="feature-card reveal"><div class="feature-icon">📈</div><h3>Gradual Profit Release</h3><p>After minimum-volume qualification, a holder checkpoint at 5× entry starts a 10%-per-day release over 10 days.</p></div>
+      <div class="feature-card reveal"><div class="feature-icon">🐋</div><h3>Large-Sale Schedule</h3><p>Qualifying requests are split into installments based on estimated quote output relative to the pool reserve. This is not a guarantee against repeated small sales.</p></div>
+      <div class="feature-card reveal"><div class="feature-icon">🔗</div><h3>Lot History on Transfer</h3><p>Supported wallet-to-wallet transfers carry or split the associated entry basis and timer instead of resetting them.</p></div>
+      <div class="feature-card reveal"><div class="feature-icon">🛡️</div><h3>Clear Boundaries</h3><p>Minting is disabled after launch, but FairDot does not lock liquidity or prevent rug pulls, OTC trades, or market losses.</p></div>
     </div>
   </section>
 
@@ -385,11 +385,8 @@
       <div class="chart-box"><h3>Token Distribution</h3><div class="chart" id="tokenChart"></div></div>
     </div>
     <div class="comparison reveal">
-      <h3 style="text-align:center;margin-bottom:2rem;color:var(--text)">Market Crash Resistance</h3>
-      <div class="comp-row"><div class="comp-label"><span>Normal Memecoin (survival after 10x)</span><span style="color:var(--red-dark)">~15%</span></div><div class="comp-bar-wrap"><div class="comp-bar normal" data-width="15">15%</div></div></div>
-      <div class="comp-row"><div class="comp-label"><span>FairDot (survival after 10x)</span><span style="color:var(--primary)">~85%</span></div><div class="comp-bar-wrap"><div class="comp-bar fairdot" data-width="85">85%</div></div></div>
-      <div class="comp-row"><div class="comp-label"><span>Normal Memecoin (avg. profit realized)</span><span style="color:var(--red-dark)">~2.2x</span></div><div class="comp-bar-wrap"><div class="comp-bar normal" data-width="22">2.2x</div></div></div>
-      <div class="comp-row"><div class="comp-label"><span>FairDot (avg. profit realized)</span><span style="color:var(--primary)">~7.8x</span></div><div class="comp-bar-wrap"><div class="comp-bar fairdot" data-width="78">7.8x</div></div></div>
+      <h3 style="text-align:center;margin-bottom:1rem;color:var(--text)">Illustrative Mechanism — Not Performance Data</h3>
+      <p style="text-align:center;color:var(--text-soft);line-height:1.8;max-width:760px;margin:0 auto 1rem;">FairDot changes supported exit mechanics through one canonical pool. It does not establish that prices will be more stable or that holders will receive a particular return. The dashboard below is illustrative demo content, not live market data.</p>
     </div>
   </section>
 
@@ -437,8 +434,8 @@
     <div class="timeline">
       <div class="timeline-item reveal"><div class="timeline-dot">1</div><h4>Launch or Join</h4><p>Deploy your memecoin with FairDot protection, or browse and trade existing protected tokens on the platform.</p></div>
       <div class="timeline-item reveal"><div class="timeline-dot">2</div><h4>Buy & Hold</h4><p>Your weighted-average entry price is recorded on-chain. Every buy updates your position transparently.</p></div>
-      <div class="timeline-item reveal"><div class="timeline-dot">3</div><h4>Price Moons 5x+</h4><p>Protection mode activates. Principal stays 100% free — only profit is scheduled for gradual release.</p></div>
-      <div class="timeline-item reveal"><div class="timeline-dot">4</div><h4>Withdraw Anytime</h4><p>Principal always free. Released profit always free. Large withdrawals staggered automatically.</p></div>
+      <div class="timeline-item reveal"><div class="timeline-dot">3</div><h4>Qualified 5× Checkpoint</h4><p>After minimum 24-hour quote volume is met, a holder checkpoint can start the per-lot profit-release schedule.</p></div>
+      <div class="timeline-item reveal"><div class="timeline-dot">4</div><h4>Sell Through the Canonical Pool</h4><p>Eligibility, stale-market limits, pool liquidity, price impact, and the large-sale schedule can affect whether and when a sale executes.</p></div>
     </div>
   </section>
 
@@ -476,7 +473,7 @@
     </aside>
     <main class="dashboard-main">
       <div class="tab-content active" id="tab-explore">
-        <div class="dash-header"><h2>Explore Memecoins</h2><p>Discover protected memecoins on FairDot. All tokens listed have anti-dump protection enabled.</p></div>
+        <div class="dash-header"><h2>Explore Memecoins</h2><p>Browse the interface concept. The listed cards are sample content, not Registry results or live market data.</p></div>
         <div class="mock-notice">Demo data — live on-chain data coming after contract deployment.</div>
         <div class="token-grid" id="tokenGrid"></div>
       </div>

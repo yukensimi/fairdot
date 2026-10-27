@@ -1,109 +1,34 @@
 <div align="center">
-<img src="logo.PNG" alt="FairDot logo" width="132" />
+  <img src="logo.PNG" alt="FairDot logo" width="132" />
   <h1>FairDot</h1>
-  <p><strong>Fairer exit mechanics for memecoin markets</strong></p>
+  <p><strong>Transparent exit rules for memecoin markets</strong></p>
   <p>Built for <strong>Portaldot Hacker House 2026</strong> on DoraHacks · Ecosystem DApps</p>
-  <p><code>Portaldot V3 EVM</code> · Chain ID <code>420420777</code> · Solidity <code>0.8.24</code></p>
 </div>
 
 ---
 
-## At a glance
+> **Positioning**
+> FairDot is designed to make memecoin exit rules more transparent and reduce the impact of large sell orders through one configured pool. It does not guarantee stable prices, recovery of the same quote value as a holder’s cost basis, or profit for every holder.
 
-FairDot explores a different set of exit rules for a memecoin market. The contract tracks each holder’s token-quantity-weighted entry cost, makes the estimated principal-equivalent token amount available under defined conditions, and releases outsized gains over time. A separate withdrawal schedule is available for larger sales relative to the pool’s quote reserve.
+## What FairDot is
 
-The current implementation is intentionally centered on one configured pool. It is a working concept and codebase for the Portaldot Hacker House, not a promise of price stability or investment returns.
+FairDot is intended as a reusable on-chain protocol, not a single meme token or website. The Factory creates a token and its canonical pool for each launch; the Registry publishes that pairing. Independent platforms can discover the same Registry entry and interact with the same token and pool. Platform identity itself cannot be enforced on-chain: any interface calling a canonical pool encounters its rules.
 
-> **Core idea:** “You may profit as much as you want—just don’t destroy the ground everyone else stands on.”
+## Target rules
 
-## Contents
+- **Per-lot entry accounting:** Entry is the quote actually paid divided by tracked tokens received. Consecutive same-day buys can merge only into the holder’s latest open purchase lot; checkpointed lots and transferred lots remain separate. Transfers carry or split basis and timer without merging different timers. Sales use FIFO, oldest eligible lot first.
+- **Volume-qualified profit protection:** The 24-hour quote VWAP qualifies for protection only after volume reaches `max(configured percentage × initial quote seed, configured absolute quote volume)`. The numeric inputs must be chosen after the seed is known and before launch. Before the volume threshold is met, tracked tokens are not profit-locked but remain subject to the large-sale schedule.
+- **Checkpoint and release:** At or above 5× lot entry after the volume threshold is met, a holder can call `pool.checkpointLock()` to start the release timer. A sell attempt also checkpoints before eligibility is evaluated, so skipping the checkpoint button cannot bypass a qualified profit lock. An ineligible sale is deferred without reverting the checkpoint. Profit is designed to release linearly at 10% per day over 10 days. A fresh price below 5× releases remaining profit when observed through a state-changing holder action; already released profit does not re-lock.
+- **Inactivity safeguards:** With no trade for more than 24 hours, the release clock pauses. After more than 7 days, `STALE_EMERGENCY_MODE` checkpoints any still-open lots against the last valid price, keeps profit locked, and uses that price explicitly for principal calculations. Eligible withdrawals are capped at 10% of the tracked-balance snapshot at emergency entry per rolling 24 hours; unused quota does not accrue. Eligibility is not a guaranteed payout.
+- **Automatic large-sale installments:** The pool estimates the quote output of the full request—including principal and profit—relative to its quote reserve at schedule start. At up to 10%, the first one-part sale is attempted immediately; after it succeeds, that holder waits 8 hours before another sale. Above 10% through 30%, sales use three parts 8 hours apart; above 30%, ten parts 24 hours apart. Installments have fixed token amounts and recheck eligibility. An ineligible part waits; the next interval begins after a successful installment. Other sales are blocked while a schedule is active. A holder may cancel the remainder, but cooldown since the last successful installment persists. Later installments require holder transactions; there is no keeper.
 
-- [The problem](#the-problem)
+A single canonical pool and launch parameters are fixed after trading starts. Updating the rules requires a new token/contract and voluntary migration. Gifts and airdrops do not gain purchase cost basis; the initial creator allocation is untracked and is not sellable through the pool.
 
-- [How FairDot works](#how-fairdot-works)
+## Boundaries and non-goals
 
-- [Project Structure](#project-structure-matches-proven-reference-layout)
+The supported market path is the token’s canonical pool; external AMM pool/router contract routes are rejected by the token. EOA-to-EOA transfers remain allowed and retain their lot accounting. FairDot does not prevent OTC or other off-chain trades, price losses, unregistered cross-chain representations, or rug pulls. V1 has no global queue, KYC/anti-sybil controls, LP lock, or keeper. Pool-reported price and volume are not an independent, manipulation-proof oracle. The rules do not guarantee liquidity, execution, recovery of quote cost basis, or profit.
 
-- [Build and test](#build-and-test)
-
-- [Portaldot configuration](#portaldot-configuration)
-
-- [Deployment](#deployment)
-
-- [Hacker House submission checklist](#hacker-house-submission-checklist)
-
-- [Documentation](#documentation)
-
-- [Disclaimer](#disclaimer)
-
-## The problem
-
-In a typical memecoin market, holders can attempt to exit at the same time. A large sale may rapidly reduce pool liquidity and move the price, leaving later sellers with a worse outcome. FairDot asks whether position-aware release rules and optional large-withdrawal schedules can make exits more deliberate.
-
-FairDot does not remove market risk. It changes the rules applied to token sales routed through its configured pool.
-
-## How FairDot works
-
-### Position-aware protection
-
-Each buy updates a holder’s tracked token amount and quote-denominated cost basis. The contract compares the holder’s average entry price with a recent pool price measure:
-
-| Effective price ÷ holder entry price | Contract behavior |
-| --- | --- |
-| Below 5× | Tracked tokens are withdrawable, subject to fresh price data and pool execution. |
-| At or above 5× | The token amount estimated to represent principal remains available; tracked profit tokens are released linearly over 10 days after the pool observes the first protected sell attempt. |
-
-“Principal available” describes a token amount calculated from recorded cost basis and the effective price. It does **not** guarantee that the holder can recover a particular amount of quote currency: execution depends on pool liquidity, price impact, and market conditions. See [Concept & Formulas](docs/CONCEPT.md) for the equations and examples.
-
-### Optional large-withdrawal schedule
-
-A large withdrawal is not automatically split. If the amount exceeds the configured threshold, a sale without an active schedule is rejected; the holder must create a schedule for the intended token amount first.
-
-| Value of the intended withdrawal vs. pool quote reserve | Schedule |
-| --- | --- |
-| Up to and including 10% | No schedule required |
-| More than 10%, up to and including 30% | 3 equal installments, 8 hours apart |
-| More than 30% | 10 installments, 24 hours apart |
-
-The schedule is bound to a token quantity. Repeated small sales or distributing holdings across multiple wallets can still weaken the intended effect; see [Q&A](docs/QNA.md).
-
-### Transfer and market policy
-
-FairDot routes market transactions through one configured pool. Transfers between ordinary wallets are allowed and carry position accounting proportionally. Contract-address interactions are restricted; that pool is the only supported market endpoint. Initial supply, minted tokens, and other tokens without recorded buy cost are marked untracked and cannot be sold through the pool as if they had a purchase history.
-
-## Project Structure (matches proven reference layout)
-
-```
-fairdot/
-├── src/                              # Solidity sources (Foundry-style layout)
-│   ├── FairDot.sol                   # ERC-20, cost basis, protection and schedules
-│   └── MockLiquidityPool.sol         # Single-pool market used for evaluation
-├── scripts/
-│   └── deploy.cjs                    # Hardhat deployment and optional initial seed
-├── test/
-│   └── FairDot.test.js               # Local contract and market-flow tests
-├── docs/
-│   ├── CONCEPT.md                    # Product model and mathematical definitions
-│   ├── ARCHITECTURE.md               # Contracts, flows and trust boundaries
-│   └── QNA.md                        # Product and technical questions
-├── index.html                        # Visual project page / demo interface
-├── logo.PNG                          # FairDot brand asset
-├── portaldot-logo.png                # Portaldot brand asset
-├── animasi.mp4                       # Visual background asset
-├── hardhat.config.cjs                # Solidity, EVM and Portaldot network settings
-├── foundry.toml                      # Foundry configuration
-├── remappings.txt                    # Foundry dependency remappings
-├── package.json
-├── package-lock.json
-├── .env.example                      # Environment-variable template
-├── .gitignore
-├── LICENSE
-└── README.md
-```
-
-## Build and test
-
-Requirements: Node.js and npm. From the repository root:
+## Repository and verification
 
 ```bash
 npm ci
@@ -111,90 +36,85 @@ npm run compile
 npm test
 ```
 
-The current local suite contains **15 passing tests**. These tests cover core accounting, transfer, protection, schedule, and access-control behavior; they are not a security audit.
+The local suite exercises per-lot accounting, transfers, protection, stale behavior, sale schedules, Factory/Registry creation, and shared-pool access by independent clients. Passing tests are not a security audit.
 
-## Portaldot configuration
+## Project Structure (matches proven reference layout)
 
-| Setting | Value |
-| --- | --- |
-| Network | Portaldot V3 EVM |
-| Chain ID | `420420777` |
-| RPC | `https://test-evm-rpc-v3.portaldot.dev` |
-| Native quote asset in the included pool | `tPOTv3` |
-| Solidity compiler | `0.8.24` |
-| EVM target | `shanghai` |
+```text
+fairdot/
+├── src/
+│   ├── FairDot.sol                 # ERC-20 accounting, protection, route guard
+│   ├── FairDotPool.sol             # Canonical pool, buys, sells, checkpoints, schedules
+│   ├── FairDotFactory.sol          # Factory and shared token/pool Registry
+│   ├── MockLiquidityPool.sol       # Backward-compatible test fixture alias
+│   └── test/MockReentrantSeller.sol # Test-only contract-wallet callback fixture
+├── scripts/
+│   ├── deploy.cjs                  # Factory deploy and fee preflight
+│   └── createMeme.cjs              # Launch a token/pool via the shared Factory
+├── test/
+│   ├── FairDot.test.js             # Core accounting and market-rule tests
+│   └── FairDotFactory.test.js      # Factory, Registry and cross-platform tests
+├── docs/
+│   ├── ARCHITECTURE.md             # Component model and transaction flows
+│   ├── CONCEPT.md                  # Product rules and mathematical model
+│   └── QNA.md                      # Product and protocol Q&A
+├── index.html                     # Static presentation/dashboard mock-up; not wallet-integrated
+├── hardhat.config.cjs              # Solidity and Portaldot V3 EVM configuration
+├── foundry.toml                    # Foundry configuration
+├── remappings.txt                  # Foundry remappings
+├── package.json
+├── .env.example
+├── .gitignore
+├── LICENSE
+└── README.md
+```
 
-The compiler is configured with optimizer runs set to `1`, `viaIR: true`, and Solidity metadata disabled to keep deployed code compact for this environment. Actual transaction costs and runtime deposits depend on the network state; the script’s preflight is only an estimate.
+## Portaldot V3 launch workflow
 
-If you need to fund an EVM account, follow Portaldot’s current official instructions for mapping the H160 address to its corresponding native account. Never share or commit your private key or seed phrase.
+A deployment has two separate stages. The shared Factory/Registry should be deployed once by the ecosystem operator; each compatible platform must use that same Factory address. A creator then creates a token and pool through the Factory. These scripts do not run automatically as part of the local test suite.
 
-## Deployment
-
-1. Install dependencies and run the build and tests above.
-
-1. Create a local environment file and add your RPC URL and private key:
+1. Install dependencies and configure a local environment file:
 
    ```bash
+   npm ci
    cp .env.example .env
    ```
 
-   Set `PORTALDOTV3_TESTNET_RPC_URL` and `PRIVATE_KEY` in `.env`. Keep `.env` private and untracked.
+   Set `PORTALDOTV3_TESTNET_RPC_URL` and the EVM `PRIVATE_KEY` in `.env`. Never commit a real private key. The signing account must be funded through its mapped Portaldot SS58 account.
 
-1. Run a read-only deployment preflight:
+2. Deploy the shared Factory only after reviewing the address, gas estimate, and funding. First run a read-only gas preflight:
 
    ```bash
    PREFLIGHT_ONLY=1 npm run deploy:portaldotv3
    ```
 
-   The preflight checks the configured chain and estimates contract-deployment gas. It does not send a transaction and does not fully account for runtime deposits or every setup transaction.
+   If the preflight is satisfactory, run the deployment command and record the Factory address, Registry address, transaction hash, and block. This sends an on-chain transaction.
 
-1. To have the deployment script seed the pool, set **both** of these optional variables in `.env` to the intended seed amounts:
+3. Put the verified Factory address into `FAIRDOT_FACTORY_ADDRESS`. Choose the token supply, token seed, native quote seed, and both minimum-volume inputs. The minimum volume is the greater of the configured percentage of the initial quote seed and the absolute quote amount. Values are intentionally not prescribed here.
 
-   ```
-   INITIAL_LIQUIDITY_TOKEN_AMOUNT=1000000
-   INITIAL_LIQUIDITY_TPOT=100
-   ```
-
-   These are examples of input format, not recommended liquidity amounts. With both values set, the live deployment sends token approval and initial-liquidity transactions, then disables minting and enables trading after confirming the seed. The quote amount is an on-chain deposit; confirm your account balance and intended parameters before running a live deployment.
-
-1. Run the live command only when ready to submit those transactions:
+4. Run the token-creation preflight before sending a launch transaction:
 
    ```bash
-   npm run deploy:portaldotv3
+   PREFLIGHT_ONLY=1 npm run create:meme:portaldotv3
    ```
 
-If the two initial-liquidity variables are omitted, the script deploys and configures the contracts but leaves trading disabled; it does not seed the pool, disable minting, or enable trading. Save the deployed addresses, transaction hashes, and block numbers for the submission record.
+   Review the creator, Factory/Registry address, token parameters, quote seed, gas estimate, and total required balance. Then run `npm run create:meme:portaldotv3` only when ready to launch. Record the emitted token/pool addresses and transaction hash.
+
+A successful launch through the same shared Factory is what lets independent platform interfaces discover the same token/pool pair. Deploying separate Factory/Registry instances does not automatically make their token lists interoperable.
 
 ## Hacker House Submission Checklist
 
-- [x] Public GitHub repository and project source
-
-- [x] FairDot concept, architecture, and Q&A documentation in English
-
-- [x] Project README with setup, deployment, and structure information
-
-- [x] Solidity build configuration for Portaldot V3 EVM
-
-- [x] Local compile and test run: 15 tests passing
-
-- [ ] Deploy the reviewed build to Portaldot V3 and record token/pool addresses, transaction hashes, and block numbers
-
-- [ ] Publish a working, clearly labelled demo experience
-
-- [ ] Prepare the submission pitch deck and a concise product demonstration
-
-## Documentation
-
-- [Concept & mathematical formulas](docs/CONCEPT.md)
-
-- [Architecture & transaction flows](docs/ARCHITECTURE.md)
-
-- [Frequently asked questions](docs/QNA.md)
+- [x] Public GitHub repository with source and license.
+- [x] English concept, architecture, and Q&A documents aligned to the stated product position.
+- [x] Factory/Registry and local tests for a shared canonical token/pool pairing.
+- [x] Local compile and automated tests run for the current branch.
+- [ ] Complete a fresh code review and security-focused test pass after final changes.
+- [ ] Run Portaldot V3 Factory deployment preflight with the intended operator account.
+- [ ] Deploy the shared Factory/Registry and record verified addresses, transaction hash, and block.
+- [ ] Finalize seed and minimum-volume values, launch one or more example tokens, and record on-chain evidence.
+- [ ] Connect the static dashboard to the deployed Factory/Registry and validate wallet flows; the current `index.html` is a mock-up, not a live trading interface.
+- [ ] Prepare and link a concise project demo and any required submission materials on DoraHacks.
 
 ## Disclaimer
 
-FairDot is an experimental hackathon project for evaluation on Portaldot. Its included pool is a minimal demonstration contract, not an independently audited production market. The rules do not guarantee price stability, liquidity, profit, or a successful exit; market execution can result in substantial loss. Do not use real assets or rely on this software for financial decisions. Review the code and obtain qualified security review before any use beyond the hackathon evaluation. Never share your private key or seed phrase.
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+FairDot is experimental software and a market-mechanics design, not financial advice. Its rules do not guarantee stable prices, recovery of cost basis in quote currency, liquidity, successful execution, or profit. Holders can lose some or all of the value they put at risk. Code review and passing tests do not replace independent security review.
