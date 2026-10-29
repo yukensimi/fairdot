@@ -1,97 +1,105 @@
-# Complete Q&A - FairDot
+# FairDot — Frequently Asked Questions
 
-## A. Background
+## Status and product scope
 
-**Q: What is the main problem with today's memecoin market?**
-A: When price moons, early holders dump everything at once -> price crashes in minutes. Late entrants are left holding massive losses. There's no fairness: first out wins, everyone else pays.
+This Q&A describes the protocol behavior implemented in the current repository and covered by local regression tests. It does not claim a network deployment, independent audit, or production readiness.
 
-**Q: What change does FairDot introduce?**
-A: It shifts from "first out wins" to "everyone grows together." When price moons, nobody can exit first and leave others behind - all participants share the upside.
+> FairDot is designed to make memecoin exit rules more transparent and reduce the impact of large sell orders through one configured pool. It does not guarantee stable prices, recovery of the same quote value as a holder’s cost basis, or profit for every holder.
 
----
+### What is FairDot?
 
-## B. Core Mechanism
+FairDot is intended as a reusable on-chain protocol, not one meme token or website. The repository includes FairDot Factory/Registry contracts intended to create one token and one canonical pool per memecoin. Once a shared Factory is deployed, independent platforms can read the same Registry entry and interact with the same token and pool addresses. No Factory deployment is claimed here.
 
-**Q: When does the restriction activate?**
-A: It's computed against YOUR OWN entry price:
-- < 5x gain -> 100% freely withdrawable
-- >= 5x gain -> principal stays free, profit released 10%/day over 10 days
+### Can FairDot enforce that trading happens through a particular platform?
 
-**Q: Is my principal ever locked?**
-A: NEVER. Your principal is always fully withdrawable at any time. Only outsized profits are released gradually.
+No. Platform identity itself cannot be enforced on-chain. Any user interface calling a token’s canonical pool follows the same pool rules, whether it is Platform A, Platform B, or another interface. External AMM pool/router contract routes are intended to be rejected by the target design.
 
-**Q: How is profit vs principal calculated?**
-A: Every buy records your weighted-average entry price. When selling: the portion worth your principal is free. The portion above principal = profit -> released gradually.
+## Entry, lots, and protection
 
-**Q: How are large withdrawals prevented from crashing the market?**
-A: If a withdrawal exceeds 10% of total liquidity, it's automatically split into installments (3 or 10 parts). The pool never drains in one shot.
+### How is entry price calculated?
 
-**Q: What if price drops while some profit is still locked?**
-A: The portion already released remains freely withdrawable. If price drops back below the 5x threshold, the system returns to normal mode - everything becomes free.
+For each tracked position lot, entry price is the quote actually paid divided by tracked tokens received:
 
-**Q: Can I bypass the rules by moving tokens to a new wallet?**
-A: No. Entry price is inherited proportionally on transfers. You cannot reset your entry price.
+```text
+EntryPricePerLot = ActualQuotePaid / TrackedTokensReceived
+```
 
----
+Consecutive purchases by a holder are grouped by UTC calendar day only while adding to that holder’s latest open purchase lot. A checkpointed or transferred lot is not a merge candidate; a later purchase creates a separate lot.
 
-## C. Fairness for All Parties
+### What happens when I transfer only part of a position?
 
-**Q: Do early holders lose out?**
-A: Quite the opposite. Without FairDot, price crashes in minutes and early holders only profit briefly. With FairDot, price holds for days -> total profit they can realize is LARGER.
+EOA-to-EOA transfers remain allowed and carry or split each affected lot’s basis, timer, and accounting proportionally. Lots with different timers are not merged. Sales consume the oldest eligible lot first (FIFO). A transfer does not turn a gift, airdrop, or other untracked tokens into tracked tokens with a new cost basis.
 
-**Q: What about late entrants who buy at the top?**
-A: Their principal is always free to withdraw. If price moons further, their profit is computed from THEIR entry price - the same fair ratio as early holders.
+### When does profit protection apply?
 
-**Q: What about whales (large capital)?**
-A: Whales benefit the most. Whales fear being trapped at the top when everyone else exits first. FairDot guarantees nobody can exit before them. Their profit remains intact - only the release timing is spread out to keep price stable.
+The target uses a 24-hour quote VWAP from the canonical pool. Profit protection requires both a minimum observed 24-hour quote volume and a price ratio of at least `5×` for the applicable lot:
 
-**Q: Is this system anti-wealth?**
-A: NO. It is anti-market-destruction. Anyone can get rich, as long as they don't crash the market while exiting.
+```text
+MinimumVolume = max(configured percentage × InitialQuoteSeed,
+                    configured absolute tPOT)
+ProtectionRatio = VWAP24h / LotEntryPrice
+```
 
----
+The numeric inputs are selected after the initial quote seed is chosen and fixed before deployment. Before the volume threshold is met, tracked tokens are not profit-locked, but they remain subject to the large-sale schedule. Pool-reported price and volume are not an independent oracle and cannot eliminate manipulation or market risk.
 
-## D. Security
+### Who starts a protection checkpoint?
 
-**Q: How is rugpull prevented?**
-A: Liquidity is locked, minting is permanently disabled after launch, and the project creators are subject to the same rules as everyone else.
+A holder can call `pool.checkpointLock()` separately to start protection before selling. The pool also checkpoints the caller during a sell attempt, so a holder cannot bypass a qualified lock simply by skipping the separate call. If the requested amount is not eligible, the sale is deferred without reverting the checkpoint. The pool alone calls the token checkpoint. A checkpointed lot becomes sealed; a later purchase forms a new lot.
 
-**Q: Does the system guarantee price won't drop?**
-A: NO. The system governs HOW profits are released, it does NOT guarantee price always rises. Price remains free to move with the market.
+### How quickly is profit released?
 
-**Q: How is trigger manipulation prevented?**
-A: The trigger uses the 24h volume-weighted average price, not spot price. A few minutes of spike won't activate it.
+The target releases profit linearly at 10% per day over 10 days. A fresh price below `5×` releases remaining profit. Profit that has already been released never re-locks. These rules define eligibility, not guaranteed sale proceeds.
 
-**Q: What happens if there are no more buyers?**
-A: Everyone still exits gradually. Nobody gets the absolute top, but nobody gets zero either. The average outcome is far better than in a normal market where latecomers get almost nothing.
+### What happens if trading stops?
 
----
+If no trade occurs for more than 24 hours, the profit-release clock pauses; profit previously released remains eligible. If there is no trade for more than 7 days, the target enters `STALE_EMERGENCY_MODE`: any still-open lots are checkpointed against the last valid price, profit stays locked, and that price is explicitly used for principal calculations. The withdrawal cap is 10% of tracked balance at emergency entry per rolling 24 hours. Unused quota does not accrue. Emergency eligibility is not a guaranteed payout.
 
-## E. Technical & Deployment
+### Is my principal guaranteed to be returned?
 
-**Q: What network is it built on?**
-A: Portaldot V3 (EVM), Chain ID 420420777. Contracts written in Solidity ^0.8.24, fully compatible with the EVM ecosystem.
+No. Cost basis is an accounting measure. FairDot does not guarantee recovery of the same quote value as the holder’s cost basis. Price movement, liquidity, price impact, lack of buyers, and execution can all reduce proceeds or prevent a sale.
 
-**Q: Why size-optimized compiler settings?**
-A: PortaldotV3 (pallet-revive) charges a storage deposit of ~0.08 tPOTv3 per byte of deployed code. Using optimizer runs=1, viaIR=true, EVM shanghai, and no metadata minimizes deployment cost.
+## Large sales and market boundaries
 
-**Q: How do I fund my EVM wallet for deployment?**
-A: Use the Node Console's Developer -> Runtime calls -> `reviveApi.accountId` to map your H160 (0x...) address to its SS58 (5...) address, then send test tPOTv3 to that SS58 address. Do NOT send directly to the H160 address.
+### Are large sales split automatically?
 
-**Q: What's the deploy command?**
-A: `npm run deploy:portaldotv3` (uses hardhat.config.cjs with network `portaldotv3Testnet`).
+The target automatically creates a schedule based on estimated quote output of the **full request** (principal plus profit) divided by the pool quote reserve at schedule start:
 
-**Q: Can it integrate with DEXes like Uniswap?**
-A: Yes. The contract is designed so the DEX pool calls `recordBuy`, `recordPrice`, and `validateWithdraw`. A mock pool is included for testing.
+| Estimated full-request output / quote reserve | Target schedule |
+| --- | --- |
+| `≤ 10%` | One part, attempted immediately |
+| `> 10%` through `30%` | Three parts, 8 hours apart |
+| `> 30%` | Ten parts, 24 hours apart |
 
-**Q: What's needed before mainnet?**
-A: Integration with a real DEX, third-party security audit, and a user-facing DApp that displays each user's position.
+The first part is attempted immediately. After a successful one-part sale at or below 10%, the same address must wait 8 hours before another sale. For larger schedules, part sizes are fixed in token units, and any rounding remainder goes to the last part. Each installment rechecks eligibility. An ineligible installment waits; the interval to the next installment begins only after a successful one. Other sales are blocked while a schedule is active. The holder may cancel remaining installments, but cooldown since the last successful installment persists. Later installments require holder transactions; no keeper is included in the target design.
 
----
+A schedule is per holder, not a global queue. It does not reserve quote liquidity or guarantee execution price or payout.
 
-## F. Conclusion
+### Can splitting wallets evade the rules?
 
-**Q: What is the core change FairDot introduces?**
-A: It rewrites the memecoin market rulebook - from "the fastest exits wins" to "everyone who enters, whenever they enter, grows together."
+Transfers carry position history, but the target does not include KYC or anti-sybil controls. The 8-hour cooldown is address-based; coordinated or separately funded wallets may still divide activity across addresses. The rules cannot ensure that multiple EOAs are one identity or prevent every form of coordination. A global sale queue is not part of v1.
 
-**Q: What is the key message?**
-A: "You may profit as much as you want - just don't destroy the ground everyone else stands on."
+### Can I trade OTC or on another chain?
+
+The target rules govern supported interactions with the canonical pool, not OTC or other off-chain transactions. Unregistered cross-chain representations are not prevented. FairDot does not prevent price losses or rug pulls.
+
+### Are team tokens sellable through the pool?
+
+In target v1, team allocation follows separately published vesting and is not sellable through the pool. Gifts and airdrops do not gain recorded cost basis merely by being received.
+
+### Can the parameters be changed after launch?
+
+The target fixes the numeric inputs after the initial quote seed is chosen and before deployment. One canonical pool and v1 parameters are immutable after trading starts. Changing rules requires a new token/contract and voluntary migration.
+
+## V1 limitations and project context
+
+### What is intentionally out of scope?
+
+V1 does not include a global queue, KYC/anti-sybil controls, LP lock, keeper, or guarantee against rug pulls. A canonical-pool rule set cannot guarantee liquidity, stable prices, successful exits, cost-basis recovery, or profit for every holder.
+
+### What is the project context?
+
+FairDot was developed for Portaldot Hacker House 2026 on DoraHacks, under Ecosystem DApps. That context does not imply deployment status, an audit, or investment endorsement.
+
+## Disclaimer
+
+FairDot is experimental software and a market-mechanics design, not financial advice. The target rules do not guarantee stable prices, liquidity, quote recovery, successful execution, or profit. Verify the repository’s actual capabilities through code review and tests; tests alone do not replace independent security review.

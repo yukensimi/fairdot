@@ -1,154 +1,98 @@
-# Concept & Mathematical Formulas - FairDot
+# FairDot — Target Concept & Mathematical Model
 
-## Core Principle
+## Purpose and status
 
-> **"Your principal always belongs to you. Outsized profits are enjoyed together, not taken alone."**
+FairDot is intended as a reusable on-chain protocol for applying transparent exit rules through one canonical pool per memecoin. It is not one meme token or one website. The repository includes FairDot Factory/Registry contracts intended to create one token and one canonical pool for each memecoin. Once a shared Factory is deployed, independent platforms can read the same Registry and interact with identical token/pool addresses; platform identity itself cannot be enforced on-chain. No network deployment is claimed here.
 
-This system does not prevent anyone from getting rich. It only ensures **nobody can crash the market while exiting**, so all parties - early holders, late entrants, and whales - share the upside fairly.
+> FairDot is designed to make memecoin exit rules more transparent and reduce the impact of large sell orders through one configured pool. It does not guarantee stable prices, recovery of the same quote value as a holder’s cost basis, or profit for every holder.
 
----
+The mechanisms described here are implemented in the current repository and covered by local regression tests. This does not claim a network deployment, independent audit, or production readiness.
 
-## Core Formulas
+## 1. Position lots and entry cost
 
-### 1. Weighted-Average Entry Price (Value-Weighted)
+FairDot’s target accounting follows position lots rather than treating all tracked tokens in a wallet as one undifferentiated balance. For a lot `L`, define:
 
-Each user has their own "entry price," computed as the **value-weighted average** of all their buys:
+- `Q_L`: quote actually paid for the purchase(s) attributed to the lot;
+- `T_L`: tracked tokens actually received for those quote payments;
+- `Entry_L = Q_L / T_L`: quote cost per tracked token for the lot.
 
-```
-P_entry = Σ(Amount_i × Price_i) / Σ(Amount_i)
-```
+Purchases are grouped by **UTC calendar day**. While a lot remains open, same-day purchases can be included in it. Once a lot has been checkpointed, it is sealed; any later same-day purchase starts a separate lot. This preserves the entry and timer history that applied when the checkpoint occurred.
 
-Where:
-- `Amount_i` = tokens bought in transaction i
-- `Price_i` = price per token in transaction i
-- Invested value per buy = `Amount_i × Price_i / 10^18`
+A holder’s consecutive purchases on the same UTC day may merge only into that holder’s latest open purchase lot. A checkpointed lot is sealed, and transferred lots are not merge candidates. A transfer carries the transferred quantity’s lot-level basis, timer, and associated accounting; partial transfers split each affected lot proportionally. Lots with different timers are not merged. When tokens are sold, FIFO selects the oldest eligible lot first. Untracked inventory—such as gifts, airdrops, or other tokens without a recorded pool purchase—does not acquire a cost basis simply by being held or transferred.
 
-**Important:** This is a **value-weighted** average, not a simple arithmetic average.
+## 2. Price signal and volume qualification
 
-**Example:**
-- Buy 1,000 tokens @ price 1.0 -> invested value = 1,000
-- Buy 1,000 tokens @ price 3.0 -> invested value = 3,000
-- Weighted-average entry = (1×1,000 + 3×1,000) / (1,000 + 1,000) = **2.5**
+The design uses a 24-hour quote-volume-weighted average price (VWAP) from observations of the canonical pool:
 
-**Purpose:** Buying in batches at different prices doesn't distort the entry price - it always reflects the actual capital deployed.
-
-### 2. Principal Value vs Current Value
-
-```
-Value_principal  = Total_Tokens × P_entry
-Value_current    = Total_Tokens × P_current
-Profit           = Value_current - Value_principal
+```text
+VWAP24h = Σ(priceⱼ × quoteVolumeⱼ) / Σ(quoteVolumeⱼ)
 ```
 
-### 3. Price Ratio (Trigger)
+Profit protection is not active until the observed 24-hour quote volume reaches the configured minimum:
 
-```
-R = P_effective / P_entry
-```
-
-`P_effective` = 24h volume-weighted average price (not spot price - anti-manipulation):
-
-```
-P_effective = Σ(P_t × Volume_t) / Σ(Volume_t)   for the last 24 hours
+```text
+MinimumVolume = max(configuredPercentage × InitialQuoteSeed,
+                    configuredAbsoluteQuoteVolume)
 ```
 
-| R | Mode | Rule |
-|---|---|---|
-| < 5 | Normal | 100% freely withdrawable |
-| >= 5 | Protection | Principal free, profit released gradually |
+The absolute threshold is denominated in the configured quote asset (tPOT in the target Portaldot configuration). Both numeric inputs are chosen after the initial quote seed is known and fixed before deployment. The VWAP and volume qualification are pool-derived signals, not an independent oracle or manipulation-proof measure. Before the volume threshold is met, tracked tokens are not profit-locked, but they remain subject to the large-sale schedule.
 
-### 4. Splitting Tokens: Principal vs Profit
+For each lot with a valid entry price:
 
-```
-Token_principal = Value_principal / P_current   -> ALWAYS freely withdrawable
-Token_profit    = Total_Tokens - Token_principal -> released gradually
+```text
+ProtectionRatio_L = VWAP24h / Entry_L
 ```
 
-### 5. Gradual Profit Release (10 days)
+A price signal is qualified for profit protection when minimum 24-hour volume is met and the ratio is at least `5×`.
 
-After lock activates (day 0):
+## 3. Holder checkpoint and profit release
 
-```
-On day t:
-  Tokens_released_daily = Token_profit / 10
-  Tokens_locked(t)      = Token_profit × (1 - t/10)
-  Tokens_withdrawable   = Token_principal + Σ(days 0..t) Tokens_released_daily
-```
+A holder can call `pool.checkpointLock()` separately to start the protection timer before selling. The pool also checkpoints the caller during a sell attempt, so omitting the separate call cannot bypass a qualified profit lock. If the requested amount is not eligible, the sale is deferred without reverting the checkpoint. The pool alone calls the corresponding token checkpoint. A protected position’s profit release is linear over ten days, at 10% per day:
 
-- Day 0: principal + 0% profit
-- Day 1: principal + 10% profit
-- Day 5: principal + 50% profit
-- Day 10: principal + 100% profit = EVERYTHING free
-
-### 6. Large-Withdrawal Stagger
-
-```
-L_ratio = Withdrawal_Value / Total_Liquidity
-
-If L_ratio <= 10%   -> instant (1 part)
-If 10% < L_ratio <= 30% -> 3 parts, 8h apart
-If L_ratio > 30%   -> 10 parts, 1 day apart
+```text
+ReleasedProfit_L(t) = checkpointedProfit_L × min(elapsedEligibleTime / 10 days, 1)
 ```
 
-### 7. Entry-Price Inheritance (Anti-Bypass)
+Release is associated with the applicable lot and timer. A fresh qualified price below `5×` releases any remaining profit; amounts already released never become locked again. These are eligibility rules, not promises that eligible tokens can be sold for a particular amount of quote currency.
 
-When tokens move from wallet A to B:
+### Inactivity and stale emergency behavior
 
+- If no pool trade occurs for more than 24 hours, the profit-release clock pauses. Previously released profit remains eligible.
+- If no trade occurs for more than 7 days, the target enters `STALE_EMERGENCY_MODE`. Any still-open lots are checkpointed against the last valid price, and profit remains locked. Principal calculations explicitly use that last valid price rather than treating it as fresh.
+- In stale emergency mode, the maximum withdrawal per rolling 24-hour period is 10% of the holder’s tracked balance at emergency-mode entry. Unused quota does not accrue or carry forward.
+
+Emergency-mode eligibility is not a guaranteed payout: pool liquidity, transaction execution, and market conditions still apply.
+
+## 4. Large-sale schedule
+
+The pool evaluates the **full sale request**, including principal and profit, at schedule start. It estimates quote output and divides that estimate by the pool’s quote reserve:
+
+```text
+SaleRatio = EstimatedQuoteOutput(full requested token amount) / QuoteReserveAtScheduleStart
 ```
-share = Amount_transferred / (Balance_A + Amount_transferred)
-Invested_inherited = Total_Invested_A × share
 
-P_entry_B = (P_entry_B × Invested_B + P_entry_A × Invested_inherited)
-            / (Invested_B + Invested_inherited)
-Invested_B += Invested_inherited
-Invested_A -= Invested_inherited
-```
+The schedule is created automatically for a sale request according to these bands:
 
-**Result:** Moving wallets CANNOT reset entry price. Rules always apply.
+| Estimated full-request quote output / quote reserve | Target schedule |
+| --- | --- |
+| `≤ 10%` | One part, attempted immediately; after success, 8-hour address-based cooldown |
+| `> 10%` through `30%` | Three parts, 8 hours apart |
+| `> 30%` | Ten parts, 24 hours apart |
 
----
+The first part is attempted immediately. Part sizes are fixed in token units when the schedule starts; any rounding remainder is assigned to the last part. Each installment rechecks eligibility. If an installment is not eligible, it waits; the interval to the next installment starts only after a successful installment. While a schedule is active, other sales are blocked. The holder can cancel remaining installments, but cooldown measured from the last successful installment persists. Each successful one-part sale at or below 10% also starts an 8-hour cooldown for that address. Each later installment requires a holder transaction; no keeper is part of the target design.
 
-## PortaldotV3 Deployment Notes
+A per-holder schedule is not a global queue and does not guarantee a price, quote amount, or successful payout. Its impact depends on the pool and on the aggregate behavior of participants.
 
-- **Native token:** tPOTv3 (14 decimals on Substrate side; EVM layer scales to 18)
-- **Storage deposit:** ~0.08 tPOTv3 per byte of deployed code
-- **Size optimization:** compiler settings minimize bytecode (optimizer runs=1, viaIR, shanghai, no metadata)
-- **Funding:** Map H160 -> SS58 via Node Console `reviveApi.accountId`, send tPOTv3 to SS58 address
+## 5. Canonical pool, transfers, and inventory
 
----
+The target design has one canonical pool per token. Contract routes through external AMM pools or routers are intended to be rejected so supported market transactions follow the same pool rules. EOA-to-EOA transfers remain allowed and carry/split lot accounting. Platform A and Platform B can use the same Registry entry and canonical token/pool addresses; the protocol cannot distinguish which platform’s UI initiated a call.
 
-## Example Scenario
+Team allocation is intended to follow separately published vesting and is not sellable through the pool in v1. Untracked gifts and airdrops do not gain cost basis. One canonical pool and v1 parameters become immutable after trading begins. A change to those rules requires a new token/contract and voluntary migration; there is no unilateral in-place parameter change in the target model.
 
-### Setup
-- Initial price = $1
-- Liquidity = $100,000
+## 6. Boundaries and non-goals
 
-### Early Holder (bought at $1)
-- Principal = $1,000 -> holds 1,000 tokens
-- Price moons to $10 -> ratio = 10x -> protection active
-- Token_principal = $1,000 / $10 = 100 tokens -> **free immediately** (gets back full principal)
-- Token_profit = 900 tokens -> released 90 tokens/day
-- Day 1: can withdraw 190 tokens = $1,900 (1.9x principal)
-- Day 5: can withdraw 550 tokens = $5,500 (5.5x principal)
-- Day 10: all 1,000 tokens free = $10,000 (10x principal)
+FairDot’s rules apply only to supported interactions with the canonical pool. The design does not prevent OTC/off-chain trading, market price losses, unregistered cross-chain representations, or rug pulls. It does not guarantee that quote liquidity exists or that a sale executes. V1 does not include a global queue, KYC/anti-sybil controls, LP lock, or keeper. Pool-reported prices and volume are not an independent oracle, and a volume threshold does not eliminate manipulation or market risk.
 
-### Late Entrant (bought at $10, after the 10x moon)
-- Principal = $1,000 -> holds 100 tokens
-- P_entry = $10
-- If price stays at $10 -> ratio = 1x -> **NORMAL, fully free to withdraw**
-- If price moons again to $50 -> ratio = 5x -> protection active
-  - Token_principal = $1,000 / $50 = 20 tokens -> free immediately
-  - Token_profit = 80 tokens -> released 8 tokens/day
-  - **Same profit ratio as the early holder!**
+## Disclaimer
 
----
-
-## Why This System Is Better
-
-| Aspect | Normal Market | FairDot |
-|---|---|---|
-| First exit | Dumps everything, crashes price | Can only sell gradually, price holds |
-| Late entrants | Buy the top, get rekt | Principal safe, profit fairly computed |
-| Whales | Buy the top, get left behind | Nobody exits first -> exits with full profit |
-| Rally duration | Minutes -> crashes | Days -> everyone participates |
-| Market trust | Low (many get rekt) | High (everyone feels treated fairly) |
+FairDot is an experimental market-mechanics design, not financial advice. A tracked cost basis is accounting information, not a claim that the holder can recover the same quote value. The protocol cannot assure stable prices, liquidity, successful exits, or profit. Any implementation requires code verification, testing, and independent security review before use with assets of value.

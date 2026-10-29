@@ -1,84 +1,88 @@
-// Deploy script for FairDot on PortaldotV3 Testnet.
-// Usage: npm run deploy:portaldotv3
-// Matches the proven reference deployment pattern (CommonJS .cjs).
+// Deploy the shared FairDotFactory/FairDotRegistry pair on Portaldot V3.
+// Usage: PREFLIGHT_ONLY=1 npm run deploy:portaldotv3
+//        npm run deploy:portaldotv3
 const hre = require("hardhat");
+
+const EXPECTED_CHAIN_ID = 420420777n;
+const FACTORY_ENV_NAME = "FAIRDOT_FACTORY_ADDRESS";
+const MAX_RUNTIME_CODE_BYTES = 24_576; // EIP-170
+const MAX_INITCODE_BYTES = 49_152; // EIP-3860
 
 async function main() {
   const [deployer] = await hre.ethers.getSigners();
-  if (!deployer) throw new Error("Set PRIVATE_KEY to a funded PortaldotV3 EVM account.");
+  if (!deployer) throw new Error("Set PRIVATE_KEY to a funded Portaldot V3 EVM account.");
+
+  const provider = hre.ethers.provider;
+  const network = await provider.getNetwork();
+  if (network.chainId !== EXPECTED_CHAIN_ID) {
+    throw new Error(`Wrong network: expected ${EXPECTED_CHAIN_ID}, received ${network.chainId}.`);
+  }
+
+  const balance = await provider.getBalance(deployer.address);
+  const feeData = await provider.getFeeData();
+  const maxFeePerGas = feeData.maxFeePerGas ?? null;
+  const gasPrice = feeData.gasPrice ?? null;
+  const maxPriorityFeePerGas = feeData.maxPriorityFeePerGas ?? null;
+  const feePerGas = maxFeePerGas ?? gasPrice;
+  const feeRateSource = maxFeePerGas != null ? "maxFeePerGas" : "gasPrice";
+  if (feePerGas == null) throw new Error("RPC did not return a usable gas price.");
+
+  const factoryArtifact = await hre.ethers.getContractFactory("FairDotFactory", deployer);
+  const artifact = await hre.artifacts.readArtifact("FairDotFactory");
+  const runtimeBytes = (artifact.deployedBytecode.length - 2) / 2;
+  const initcodeBytes = (artifact.bytecode.length - 2) / 2;
+  if (runtimeBytes > MAX_RUNTIME_CODE_BYTES) {
+    throw new Error(`Factory runtime code is ${runtimeBytes} bytes; the EIP-170 limit is ${MAX_RUNTIME_CODE_BYTES}.`);
+  }
+  if (initcodeBytes > MAX_INITCODE_BYTES) {
+    throw new Error(`Factory initcode is ${initcodeBytes} bytes; the EIP-3860 limit is ${MAX_INITCODE_BYTES}.`);
+  }
+  const request = await factoryArtifact.getDeployTransaction();
+  const gasLimit = await provider.estimateGas({ ...request, from: deployer.address });
+  const estimatedFee = gasLimit * feePerGas;
+  const bufferedFee = estimatedFee * 120n / 100n;
 
   console.log("Deployer:", deployer.address);
-  console.log(
-    "Balance:",
-    hre.ethers.formatEther(await hre.ethers.provider.getBalance(deployer.address)),
-    "tPOTv3"
-  );
+  console.log("Chain ID:", network.chainId.toString());
+  console.log("Balance:", hre.ethers.formatEther(balance), "tPOTv3");
+  const formatFeeRate = (value) => value == null
+    ? "unavailable"
+    : `${value.toString()} wei/gas (${hre.ethers.formatEther(value)} tPOTv3/gas)`;
+  console.log("RPC maxFeePerGas:", formatFeeRate(maxFeePerGas));
+  console.log("RPC gasPrice:", formatFeeRate(gasPrice));
+  console.log("RPC maxPriorityFeePerGas:", formatFeeRate(maxPriorityFeePerGas));
+  console.log(`Fee rate selected for estimate (${feeRateSource}):`, formatFeeRate(feePerGas));
+  console.log("\n=== Shared Factory deployment preflight ===");
+  console.log(`Factory bytecode: ${runtimeBytes}/${MAX_RUNTIME_CODE_BYTES} runtime bytes; ${initcodeBytes}/${MAX_INITCODE_BYTES} initcode bytes`);
+  console.log("RPC estimateGas limit:", gasLimit.toString());
+  console.log("Estimated maximum fee (estimateGas × selected fee rate):", hre.ethers.formatEther(estimatedFee), "tPOTv3");
+  console.log("Fee estimate + 20% buffer:", hre.ethers.formatEther(bufferedFee), "tPOTv3");
+  if (balance < bufferedFee) {
+    console.warn("WARNING: balance is below the estimated fee plus buffer. Deployment may be rejected.");
+  }
 
-  // ============================================================
-  // 1. Deploy FairDot token
-  // ============================================================
-  const TOKEN_NAME = "FairDot";
-  const TOKEN_SYMBOL = "FAIR";
-  const INITIAL_SUPPLY = 1_000_000_000; // 1 billion tokens
+  if (process.env.PREFLIGHT_ONLY === "1") {
+    console.log("PREFLIGHT_ONLY=1: no transaction was sent.");
+    return;
+  }
 
-  console.log("\n=== Deploying FairDot Token ===");
-  const factory = await hre.ethers.getContractFactory("FairDot", deployer);
-  const token = await factory.deploy(TOKEN_NAME, TOKEN_SYMBOL, INITIAL_SUPPLY);
-  const tx = token.deploymentTransaction();
-  const receipt = await tx.wait();
+  console.log("\nDeploying the shared Factory and its Registry. This sends one on-chain transaction.");
+  const factory = await factoryArtifact.deploy();
+  const deployment = factory.deploymentTransaction();
+  const receipt = await deployment.wait();
+  const factoryAddress = await factory.getAddress();
+  const registryAddress = await factory.registry();
 
-  const tokenAddress = await token.getAddress();
-  console.log("FairDot:", tokenAddress);
-  console.log("Deploy block:", receipt.blockNumber);
-  console.log("Deployer:", deployer.address);
+  if ((await provider.getCode(factoryAddress)) === "0x" || (await provider.getCode(registryAddress)) === "0x") {
+    throw new Error("Factory deployment receipt exists but deployed code could not be verified.");
+  }
 
-  // ============================================================
-  // 2. Deploy MockLiquidityPool (testnet / demo only)
-  //    In production, use a real DEX (e.g. Uniswap V2 fork)
-  // ============================================================
-  console.log("\n=== Deploying MockLiquidityPool (test only) ===");
-  const poolFactory = await hre.ethers.getContractFactory("MockLiquidityPool", deployer);
-  const mockPool = await poolFactory.deploy(tokenAddress);
-  const poolTx = mockPool.deploymentTransaction();
-  const poolReceipt = await poolTx.wait();
-  const poolAddress = await mockPool.getAddress();
-  console.log("MockPool:", poolAddress);
-  console.log("Pool deploy block:", poolReceipt.blockNumber);
-
-  // ============================================================
-  // 3. Configure the token contract
-  // ============================================================
-  console.log("\n=== Configuring ===");
-
-  await token.setLiquidityPool(poolAddress);
-  console.log("Liquidity pool set to:", poolAddress);
-
-  await token.enableTrading();
-  console.log("Trading enabled");
-
-  await token.disableMinting();
-  console.log("Minting disabled permanently");
-
-  // ============================================================
-  // 4. Summary
-  // ============================================================
-  console.log("\n" + "=".repeat(60));
-  console.log("DEPLOYMENT SUMMARY - PortaldotV3 Testnet (Chain ID: 420420777)");
-  console.log("=".repeat(60));
-  console.log("FairDot Token: ", tokenAddress);
-  console.log("MockPool:      ", poolAddress);
-  console.log("Token Name:    ", TOKEN_NAME);
-  console.log("Token Symbol:  ", TOKEN_SYMBOL);
-  console.log("Initial Supply:", INITIAL_SUPPLY.toLocaleString(), TOKEN_SYMBOL);
-  console.log("Deploy block:  ", receipt.blockNumber);
-  console.log("Node Console:  https://node-console.portaldot.dev/");
-  console.log("=".repeat(60));
-
-  console.log("\n NEXT STEPS:");
-  console.log("1. Fund the deployer's mapped SS58 address with tPOTv3 (via Node Console)");
-  console.log("2. Add liquidity to the pool");
-  console.log("3. Call updateLiquidity() with total liquidity");
-  console.log("4. Test with accounts: buy, pump price, sell");
+  console.log("Factory:", factoryAddress);
+  console.log("Registry:", registryAddress);
+  console.log("Transaction:", receipt.hash);
+  console.log("Block:", receipt.blockNumber);
+  console.log(`\nSave ${FACTORY_ENV_NAME}=${factoryAddress} in the deployment environment.`);
+  console.log("Share this same Factory/Registry address with every FairDot-compatible platform.");
 }
 
 main().catch((error) => {

@@ -1,3 +1,4 @@
+require("dotenv").config();
 require("@nomicfoundation/hardhat-toolbox");
 
 module.exports = {
@@ -6,9 +7,14 @@ module.exports = {
     settings: {
       optimizer: {
         enabled: true,
-        runs: 200
+        runs: 1
       },
-      evmVersion: "shanghai"
+      viaIR: true,
+      evmVersion: "shanghai",
+      metadata: {
+        bytecodeHash: "none",
+        appendCBOR: false
+      }
     }
   },
   networks: {
