@@ -58,8 +58,8 @@ Release is associated with the applicable lot and timer. A fresh qualified price
 ### Inactivity and stale emergency behavior
 
 - If no pool trade occurs for more than 24 hours, the profit-release clock pauses. Previously released profit remains eligible.
-- If no trade occurs for more than 7 days, the target enters `STALE_EMERGENCY_MODE`. Any still-open lots are checkpointed against the last valid price, and profit remains locked. Principal calculations explicitly use that last valid price rather than treating it as fresh.
-- In stale emergency mode, the maximum withdrawal per rolling 24-hour period is 10% of the holder’s tracked balance at emergency-mode entry. Unused quota does not accrue or carry forward.
+- If no trade occurs for more than 7 days, the target enters `STALE_EMERGENCY_MODE`. Any still-open lots are checkpointed against the last valid price, and unreleased profit remains locked. Principal calculations explicitly use that last valid price rather than treating it as fresh. Profit already released before emergency remains eligible; no further release accrues while stale.
+- In stale emergency mode, the maximum principal withdrawal per rolling 24-hour period is 10% of the holder’s tracked-balance snapshot at emergency-mode entry. Previously released profit is outside this principal quota. Unused principal quota does not accrue or carry forward.
 
 Emergency-mode eligibility is not a guaranteed payout: pool liquidity, transaction execution, and market conditions still apply.
 

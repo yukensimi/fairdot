@@ -52,7 +52,7 @@ The target releases profit linearly at 10% per day over 10 days. A fresh price b
 
 ### What happens if trading stops?
 
-If no trade occurs for more than 24 hours, the profit-release clock pauses; profit previously released remains eligible. If there is no trade for more than 7 days, the target enters `STALE_EMERGENCY_MODE`: any still-open lots are checkpointed against the last valid price, profit stays locked, and that price is explicitly used for principal calculations. The withdrawal cap is 10% of tracked balance at emergency entry per rolling 24 hours. Unused quota does not accrue. Emergency eligibility is not a guaranteed payout.
+If no trade occurs for more than 24 hours, the profit-release clock pauses; profit previously released remains eligible. If there is no trade for more than 7 days, the target enters `STALE_EMERGENCY_MODE`: any still-open lots are checkpointed against the last valid price, unreleased profit stays locked, and that price is explicitly used for principal calculations. Profit released before emergency remains eligible without using the principal quota; no further profit release accrues while stale. Principal withdrawals are capped at 10% of tracked balance at emergency entry per rolling 24 hours. Unused principal quota does not accrue. Emergency eligibility is not a guaranteed payout.
 
 ### Is my principal guaranteed to be returned?
 

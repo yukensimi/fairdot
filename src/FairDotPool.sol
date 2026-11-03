@@ -144,7 +144,6 @@ contract FairDotPool is ReentrancyGuard {
         require(quoteOut >= minQuoteOut, "Slippage exceeded");
 
         require(token.transferFrom(msg.sender, address(this), installment), "Token transfer failed");
-        token.consumeEmergencyQuota(msg.sender, installment);
         tokenReserve = nextTokenReserve;
         quoteReserve = nextQuoteReserve;
         uint256 price = quoteOut * PRECISION / installment;

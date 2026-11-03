@@ -338,6 +338,60 @@ describe("FairDot core accounting", function () {
     expect(eligible).to.be.at.most(emergency.snapshot / 10n);
   });
 
+  it("keeps profit released before stale emergency withdrawable outside the principal quota", async function () {
+    const { user1, token, pool } = await deployFixture({ quoteLiquidity: 100n * S, tokenLiquidity: 100000n * S });
+    await pool.connect(user1).buy(0, { value: S / 10n });
+    const user = await user1.getAddress();
+    const initialLot = await token.lots(user, 0);
+    const entry = initialLot.quoteBasis * S / initialLot.quantity;
+
+    const poolAddress = await pool.getAddress();
+    await ethers.provider.send("hardhat_setBalance", [poolAddress, "0x1000000000000000000"]);
+    await ethers.provider.send("hardhat_impersonateAccount", [poolAddress]);
+    const poolSigner = await ethers.getSigner(poolAddress);
+    await token.connect(poolSigner).recordPrice(entry * 6n, 100n * S);
+    await pool.connect(user1).checkpointLock();
+    expect((await token.lots(user, 0)).checkpointed).to.equal(true);
+
+    // Persist five active release days while price observations are fresh.
+    for (let day = 0; day < 5; day++) {
+      await mineAfter(DAY + 1);
+      await token.connect(poolSigner).recordPrice(entry * 6n, 100n * S);
+      await pool.connect(user1).checkpointLock();
+    }
+    await ethers.provider.send("hardhat_stopImpersonatingAccount", [poolAddress]);
+
+    const releasedBefore = (await token.lots(user, 0)).releasedProfit;
+    expect(releasedBefore).to.be.greaterThan(0n);
+
+    // Enter emergency after more than seven days with no new price observation.
+    await mineAfter(7 * DAY + 1);
+    await pool.connect(user1).checkpointLock();
+    const emergency = await token.emergencyState(user);
+    expect(emergency.windowStart).to.be.greaterThan(0n);
+    expect((await token.lots(user, 0)).releasedProfit).to.equal(releasedBefore);
+
+    const emergencyCap = emergency.snapshot / 10n;
+    const principalAvailable =
+      (await token.lots(user, 0)).principalBudget - (await token.lots(user, 0)).principalConsumed;
+    const principalSale = principalAvailable < emergencyCap ? principalAvailable : emergencyCap;
+    const profitSale = releasedBefore / 1000n;
+    expect(principalSale).to.be.greaterThan(0n);
+    expect(profitSale).to.be.greaterThan(0n);
+
+    await token.connect(user1).approve(await pool.getAddress(), principalSale + profitSale);
+    await expect(pool.connect(user1).sell(principalSale, 0)).to.emit(pool, "Swapped");
+    expect((await token.emergencyState(user)).used).to.equal(principalSale);
+
+    // After principal quota is exhausted, previously released profit is still sellable.
+    await mineAfter(8 * 60 * 60);
+    const [withdrawableAfterPrincipal] = await token.getWithdrawable(user);
+    expect(withdrawableAfterPrincipal).to.be.at.least(profitSale);
+    await expect(pool.connect(user1).sell(profitSale, 0)).to.emit(pool, "Swapped");
+    expect((await token.emergencyState(user)).used).to.equal(principalSale);
+    expect((await token.emergencyState(user)).windowStart).to.be.greaterThan(0n);
+  });
+
   it("keeps emergency mode through its own sale observations and applies a rolling 24-hour quota", async function () {
     const { user1, user2, token, pool } = await deployFixture({ quoteLiquidity: S, tokenLiquidity: 1000n * S });
     await txPrice(pool, token, user1, S / 10n);

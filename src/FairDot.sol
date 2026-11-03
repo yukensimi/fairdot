@@ -185,14 +185,21 @@ contract FairDot is ERC20, Ownable {
             e.windowStart = block.timestamp;
             e.priceSnapshot = getCurrentPrice();
             if (e.priceSnapshot != 0) {
-                uint256 activeNow = activeClockNow();
                 Lot[] storage a = _lots[user];
                 for (uint256 i; i < a.length; ++i) {
                     Lot storage lot = a[i];
-                    if (lot.quantity == 0 || lot.checkpointed) continue;
+                    if (lot.quantity == 0) continue;
+                    if (lot.checkpointed) {
+                        // Freeze only the release accrued while observations were active.
+                        // Do not count the stale gap or unlock profit from stale price data.
+                        if (_triggerMet(lot, e.priceSnapshot)) {
+                            _persistReleased(lot, e.priceSnapshot, true, activeClock);
+                        }
+                        continue;
+                    }
                     lot.principalBudget = _principal(lot, e.priceSnapshot);
                     lot.checkpointProfit = lot.quantity - lot.principalBudget;
-                    lot.checkpointActiveTime = uint64(activeNow);
+                    lot.checkpointActiveTime = uint64(activeClock);
                     lot.checkpointed = true;
                 }
                 _syncPosition(user);
@@ -243,17 +250,23 @@ contract FairDot is ERC20, Ownable {
         if (emergency.windowStart != 0) {
             if (emergency.snapshot == 0 || emergency.priceSnapshot == 0) return (0, pos.trackedTokens, 0, 4);
             Lot[] storage emergencyLots = _lots[user];
+            uint256 principalTotal;
+            uint256 releasedProfitTotal;
             for (uint256 i; i < emergencyLots.length; ++i) {
                 Lot storage lot = emergencyLots[i];
                 if (lot.quantity == 0) continue;
                 uint256 entry = _entryPrice(lot);
                 if (entry != 0) currentRatio = emergency.priceSnapshot * BASIS_POINTS / entry;
-                withdrawableNow += _principalAvailable(lot, emergency.priceSnapshot);
+                if (lot.checkpointed) {
+                    principalTotal += _principalAvailable(lot, emergency.priceSnapshot);
+                    releasedProfitTotal += lot.releasedProfit;
+                }
             }
             uint256 cap = emergency.snapshot * EMERGENCY_QUOTA_BPS / BASIS_POINTS;
             uint256 used = _rollingEmergencyUsed(user);
             uint256 remaining = cap > used ? cap - used : 0;
-            if (withdrawableNow > remaining) withdrawableNow = remaining;
+            withdrawableNow = (principalTotal < remaining ? principalTotal : remaining) + releasedProfitTotal;
+            if (withdrawableNow > pos.trackedTokens) withdrawableNow = pos.trackedTokens;
             lockedRemaining = pos.trackedTokens - withdrawableNow;
             return (withdrawableNow, lockedRemaining, currentRatio, 4);
         }
@@ -286,12 +299,6 @@ contract FairDot is ERC20, Ownable {
     function validateSell(address user, uint256 amount) external view onlyPool returns (bool) {
         (uint256 available,,,) = getWithdrawable(user);
         return amount > 0 && amount <= available;
-    }
-    function consumeEmergencyQuota(address user, uint256 amount) external onlyPool {
-        EmergencyState storage e = emergencyState[user];
-        if (e.windowStart == 0) return;
-        _emergencySales[user].push(EmergencySale(uint64(block.timestamp), amount));
-        e.used = _rollingEmergencyUsed(user);
     }
     function getStaggerInfo(uint256 quoteValue) public view returns (uint256 parts, uint256 interval) {
         if (quoteReserve == 0) return (1, 0);
@@ -384,19 +391,37 @@ contract FairDot is ERC20, Ownable {
         if (price == 0) price = getCurrentPrice();
         bool fresh = emergency.windowStart == 0 && getEffectivePrice() != 0;
         uint256 activeNow = activeClockNow();
+        uint256 emergencyPrincipalRemaining;
+        uint256 emergencyPrincipalSold;
+        if (emergency.windowStart != 0) {
+            uint256 cap = emergency.snapshot * EMERGENCY_QUOTA_BPS / BASIS_POINTS;
+            uint256 used = _rollingEmergencyUsed(user);
+            emergencyPrincipalRemaining = cap > used ? cap - used : 0;
+        }
         uint256 remaining = amount;
         Lot[] storage a = _lots[user];
         // FIFO among eligible lots; locked portions in older lots are skipped.
         for (uint256 i; i < a.length && remaining > 0; ++i) {
             Lot storage lot = a[i];
             if (lot.quantity == 0) continue;
-            uint256 available = emergency.windowStart != 0
-                ? (lot.checkpointed ? _principalAvailable(lot, price) : lot.quantity)
-                : _eligibleLot(lot, price, fresh, activeNow);
+            uint256 principalAvailable;
+            uint256 profitAvailable;
+            uint256 available;
+            if (emergency.windowStart != 0) {
+                if (!lot.checkpointed) continue;
+                principalAvailable = _principalAvailable(lot, price);
+                if (principalAvailable > emergencyPrincipalRemaining) {
+                    principalAvailable = emergencyPrincipalRemaining;
+                }
+                profitAvailable = lot.releasedProfit;
+                available = principalAvailable + profitAvailable;
+            } else {
+                available = _eligibleLot(lot, price, fresh, activeNow);
+                principalAvailable = lot.checkpointed ? _principalAvailable(lot, price) : 0;
+            }
             if (available == 0) continue;
             uint256 taken = available < remaining ? available : remaining;
             uint256 basis = taken == lot.quantity ? lot.quoteBasis : lot.quoteBasis * taken / lot.quantity;
-            uint256 principalAvailable = lot.checkpointed ? _principalAvailable(lot, price) : 0;
             uint256 principalTaken = taken < principalAvailable ? taken : principalAvailable;
             uint256 profitTaken = taken - principalTaken;
             lot.quantity -= taken;
@@ -407,9 +432,17 @@ contract FairDot is ERC20, Ownable {
                 lot.releasedProfit -= profitTaken;
             }
             lot.principalConsumed += principalTaken;
+            if (emergency.windowStart != 0) {
+                emergencyPrincipalRemaining -= principalTaken;
+                emergencyPrincipalSold += principalTaken;
+            }
             remaining -= taken;
         }
         require(remaining == 0, "Withdrawal not allowed");
+        if (emergency.windowStart != 0 && emergencyPrincipalSold > 0) {
+            _emergencySales[user].push(EmergencySale(uint64(block.timestamp), emergencyPrincipalSold));
+            emergencyState[user].used = _rollingEmergencyUsed(user);
+        }
         _syncPosition(user);
     }
     function _persistUserReleases(address user) private {

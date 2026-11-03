@@ -82,7 +82,7 @@ Holder -> canonical pool.checkpointLock()
 
 The holder may initiate this operation separately for themself. A sell attempt also checkpoints the caller before sale eligibility is evaluated; if the requested amount is not eligible, the pool defers the sale without reverting the checkpoint. At the volume threshold, a 5× ratio locks profit and releases it linearly at 10% per day for ten days. A fresh price below 5× releases remaining profit when observed through a state-changing holder action; previously released profit never re-locks.
 
-If no trade occurs for more than 24 hours, the profit-release clock pauses while previously released profit remains eligible. After more than 7 days without a trade, `STALE_EMERGENCY_MODE` checkpoints still-open lots against the last valid price, keeps profit locked, and explicitly uses that price for principal calculations. The emergency withdrawal limit is 10% of tracked balance at emergency entry per rolling 24 hours; unused quota does not accrue. Eligibility is not guaranteed execution or payment.
+If no trade occurs for more than 24 hours, the profit-release clock pauses while previously released profit remains eligible. After more than 7 days without a trade, `STALE_EMERGENCY_MODE` checkpoints still-open lots against the last valid price, keeps unreleased profit locked, and explicitly uses that price for principal calculations. Profit released before emergency remains eligible without using the principal quota; no new profit release accrues while stale. Principal withdrawals are limited to 10% of tracked balance at emergency entry per rolling 24 hours; unused quota does not accrue. Eligibility is not guaranteed execution or payment.
 
 ## 5. Sale and installment flow
 
