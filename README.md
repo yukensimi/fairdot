@@ -48,18 +48,23 @@ fairdot/
 │   ├── FairDotFactory.sol          # Factory and shared token/pool Registry
 │   ├── MockLiquidityPool.sol       # Backward-compatible test fixture alias
 │   ├── test/MockReentrantSeller.sol # Test-only contract-wallet callback fixture
-│   └── test/CloneLaunchSpike.sol    # Experimental test-only clone benchmark; not production code
+│   ├── test/CloneLaunchSpike.sol    # Experimental test-only clone benchmark; not production code
+│   ├── experimental/FairDotClone.sol # Cloneable accounting prototype; experimental only
+│   ├── experimental/FairDotPoolClone.sol # Cloneable pool prototype; experimental only
+│   └── experimental/FairDotCloneFactory.sol # Shared clone Factory prototype; experimental only
 ├── scripts/
 │   ├── deploy.cjs                  # Factory deploy and fee preflight
 │   └── createMeme.cjs              # Launch a token/pool via the shared Factory
 ├── test/
 │   ├── FairDot.test.js             # Core accounting and market-rule tests
 │   ├── FairDotFactory.test.js      # Factory, Registry and cross-platform tests
-│   └── CloneLaunchSpike.test.js    # Local-only EIP-1167 cost/initializer probe
+│   ├── CloneLaunchSpike.test.js    # Local-only EIP-1167 cost/initializer probe
+│   └── experimental/FairDotCloneFactory.test.js # Clone integration and local gas comparison
 ├── docs/
 │   ├── ARCHITECTURE.md             # Component model and transaction flows
 │   ├── CONCEPT.md                  # Product rules and mathematical model
-│   └── QNA.md                      # Product and protocol Q&A
+│   ├── QNA.md                      # Product and protocol Q&A
+│   └── LOW_COST_SPIKE.md            # Experimental clone benchmark and limitations
 ├── index.html                     # Static presentation/dashboard mock-up; not wallet-integrated
 ├── hardhat.config.cjs              # Solidity and Portaldot V3 EVM configuration
 ├── foundry.toml                    # Foundry configuration

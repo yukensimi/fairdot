@@ -1,36 +1,47 @@
-# Low-Cost Launch Spike: EIP-1167 Clones
+# Low-Cost Launch Prototype: EIP-1167 Clones
 
 ## Purpose
 
-This is an isolated Hardhat experiment to check whether OpenZeppelin EIP-1167 minimal clones can reduce the per-launch deployment work for a token/pool pair while preserving one-time initialization and per-instance state. It is not a production FairDot implementation and must not be deployed.
+This branch contains an isolated Hardhat experiment and a separate cloneable copy of the FairDot token, pool, and factory. OpenZeppelin EIP-1167 minimal clones are used to check whether launch-time code deployment can be reduced while preserving the current token accounting and market logic. Everything under `src/experimental` is prototype code, not production FairDot code, and must not be deployed.
 
 Run it locally with:
 
 ```bash
 npx hardhat test test/CloneLaunchSpike.test.js
+npx hardhat test test/experimental/FairDotCloneFactory.test.js
+npm test
 ```
 
 ## Local result
 
-The probe compared two small, purpose-built token/pool pairs with metadata, creator, supply, and seed state. On the local Hardhat Shanghai EVM, the observed estimates were:
+The first probe compared two small, purpose-built token/pool pairs. On the local Hardhat Shanghai EVM, it showed a 28.34% reduction in per-launch estimated gas, but that was not representative of FairDot's full code.
 
-| Measurement | Direct deployment | Clone deployment |
+The second benchmark compared the current `FairDotFactory.createMeme` path against the experimental Factory creating clones of the full copied FairDot token and pool logic. The tests deployed both systems and measured `createMeme` with the same launch parameters. Local estimates were:
+
+| Measurement | Existing Factory | Clone prototype |
 | --- | ---: | ---: |
-| One-time factory deployment | 689,729 gas | 892,746 gas, including both implementations |
-| Per-launch token/pool pair | 441,162 gas | 316,121 gas |
+| One-time system deployment | 5,594,320 gas | 5,889,820 gas, including implementations, Factory, and Registry |
+| Per-launch `createMeme` estimate | 4,853,733 gas | 799,582 gas |
+| System deployment plus one launch | 10,448,053 gas | 6,689,402 gas |
 
-The clone path reduced the probe's per-launch estimate by 125,041 gas, or approximately 28.34%. Its one-time implementation overhead was 203,017 gas. At these local estimates, two launches are the first point where total factory-plus-launch gas becomes lower for the clone probe: 1,524,988 gas versus 1,572,053 gas for two direct launches.
+The full-logic clone prototype reduced the local per-launch estimate by 4,054,151 gas, or approximately 83.53%. Its one-time system deployment estimate was 295,500 gas higher than the existing Factory. At the local estimates, the shared deployment cost is recovered within the first launch. This comparison is still only a Hardhat EVM result, not a Portaldot fee estimate.
 
-The tests also confirmed that the clone implementation's own initializer is locked, each clone initializes once, the creator is recorded per clone, and creating a second clone does not overwrite the first clone's state.
+Local runtime/initcode sizes were: existing Factory 24,415/25,817 bytes; clone token implementation 16,306/17,185 bytes; clone pool implementation 5,962/6,028 bytes; clone Factory 2,650/27,407 bytes. These are compiled local artifacts, not proof of acceptance by Portaldot V3. The clone Factory creates and binds its implementations in its constructor. The implementations embed that Factory address and reject initialization from anyone else. Tests confirmed the implementation lock, repeated-initialization rejection, creator ownership and Registry attribution, separate state across launches, and the actual buy → 5× protection → ten-active-day release path under a stable post-checkpoint VWAP.
+
+The current full local Hardhat suite reports 38 passing tests, including the original direct-deployment regression suite, the small EIP-1167 probe, and four clone-specific tests.
 
 ## What this does not prove
 
-- The probe does not implement FairDot's per-lot accounting, transfers, 5x protection, ten-day release, stale emergency, sale schedules, or canonical Registry behavior.
-- The measured bytecode and initialization writes are much smaller than the real FairDot and pool. Therefore the 28.34% result is not an estimate of actual FairDot launch savings.
+- The small probe does not implement FairDot's accounting or market rules. The full clone prototype copies those rules, but it has not yet passed the complete clone-specific regression and security matrix.
+- The clone contracts are duplicated experimental sources. They have not gone through a security audit or the complete test matrix against every clone-specific edge case.
 - Local Hardhat gas is not a tPOT fee quote. It must not be converted into a Portaldot cost by multiplying by an assumed gas price.
 - This does not verify EIP-1167 `delegatecall`, clone creation, or initialization behavior on Portaldot V3 / pallet-revive.
 - This does not yet meet the target of at most 1 tPOT paid by an end user, including seed. Any subsidy and quote seed must be budgeted separately.
 
-## Gate before adapting FairDot
+## Open accounting question
 
-First verify clone and delegatecall compatibility with the Portaldot V3 runtime using a disposable, low-risk technical probe, subject to an explicit deployment decision. If that passes, create a separate clone-compatible FairDot/Pool prototype that replaces constructors and per-instance immutables with guarded initializers. Preserve the production regression suite and add tests for initializer front-running, repeated initialization, creator attribution, token/pool binding, Registry uniqueness, reentrancy, and all existing FairDot market rules. Compare deployment estimates and mined receipts on Portaldot before claiming a per-launch cost or opening token creation to users.
+An exploratory test that let price continue rising after the protection checkpoint still showed some tokens unavailable after ten active days, even while the fresh VWAP stayed well above 5×. The copied logic fixes `checkpointProfit` at the checkpoint and calculates principal-equivalent tokens using the current price. This means later appreciation can change the principal-equivalent amount without being added to that fixed release bucket. This may be intended, but it needs a clear product decision. A passing test in `test/experimental/FairDotCloneFactory.test.js` now reproduces this current behavior; it documents the result and does not mean the behavior is approved as policy. The passing ten-day release test holds the post-checkpoint VWAP stable to isolate the release timer; it does not settle the rising-price case.
+
+## Gate before any Portaldot deployment
+
+First verify EIP-1167 clone creation, `delegatecall`, token metadata, storage isolation, and revert behavior on the Portaldot V3 / pallet-revive runtime with an explicitly approved low-risk technical test. Then run the full FairDot regression matrix against clone instances, add tests for clone-specific reentrancy and Registry/implementation binding, and resolve the rising-price release question. Measure actual mined receipts, deposits, and fees on Portaldot before deciding whether the user-facing 1 tPOT target needs platform subsidy. No clone prototype has been deployed to Portaldot.
