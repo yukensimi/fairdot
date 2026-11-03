@@ -47,13 +47,15 @@ fairdot/
 │   ├── FairDotPool.sol             # Canonical pool, buys, sells, checkpoints, schedules
 │   ├── FairDotFactory.sol          # Factory and shared token/pool Registry
 │   ├── MockLiquidityPool.sol       # Backward-compatible test fixture alias
-│   └── test/MockReentrantSeller.sol # Test-only contract-wallet callback fixture
+│   ├── test/MockReentrantSeller.sol # Test-only contract-wallet callback fixture
+│   └── test/CloneLaunchSpike.sol    # Experimental test-only clone benchmark; not production code
 ├── scripts/
 │   ├── deploy.cjs                  # Factory deploy and fee preflight
 │   └── createMeme.cjs              # Launch a token/pool via the shared Factory
 ├── test/
 │   ├── FairDot.test.js             # Core accounting and market-rule tests
-│   └── FairDotFactory.test.js      # Factory, Registry and cross-platform tests
+│   ├── FairDotFactory.test.js      # Factory, Registry and cross-platform tests
+│   └── CloneLaunchSpike.test.js    # Local-only EIP-1167 cost/initializer probe
 ├── docs/
 │   ├── ARCHITECTURE.md             # Component model and transaction flows
 │   ├── CONCEPT.md                  # Product rules and mathematical model
