@@ -50,6 +50,28 @@ async function mineAfter(seconds) {
   await ethers.provider.send("evm_mine", []);
 }
 
+async function protectedCloneAtSixX() {
+  const { creator, user1, user2, user3, factory } = await deployCloneSystem();
+  const launched = await launch(factory, creator);
+  const token = await ethers.getContractAt("FairDotClone", launched.tokenAddress);
+  const pool = await ethers.getContractAt("FairDotPoolClone", launched.poolAddress);
+  await pool.connect(user1).buy(0, { value: S });
+  const lot = await token.lots(user1.address, 0);
+  const entryPrice = lot.quoteBasis * S / lot.quantity;
+
+  const poolAddress = await pool.getAddress();
+  await ethers.provider.send("hardhat_setBalance", [poolAddress, "0x1000000000000000000"]);
+  await ethers.provider.send("hardhat_impersonateAccount", [poolAddress]);
+  const poolSigner = await ethers.getSigner(poolAddress);
+  const observe = async (multiple, volume = 1_000_000n * S) => {
+    await token.connect(poolSigner).recordPrice(entryPrice * multiple, volume);
+    await token.connect(poolSigner).checkpointLock(user1.address);
+  };
+  await observe(6n);
+  expect((await token.lots(user1.address, 0)).checkpointed).to.equal(true);
+  return { creator, user1, user2, user3, factory, token, pool, poolSigner, entryPrice, observe };
+}
+
 describe("Experimental cloneable FairDot/Pool prototype (local Hardhat only)", function () {
   it("locks implementations, initializes each clone once, and registers the actual creator and canonical pool", async function () {
     const { creator, user1, tokenImplementation, poolImplementation, factory } = await deployCloneSystem();
@@ -142,27 +164,144 @@ describe("Experimental cloneable FairDot/Pool prototype (local Hardhat only)", f
     expect(withdrawable).to.equal(await token.balanceOf(buyer));
   });
 
-  it("documents unresolved post-checkpoint appreciation behavior after ten active days", async function () {
-    const { creator, user1, user2, user3, factory } = await deployCloneSystem();
-    const launched = await launch(factory, creator);
-    const token = await ethers.getContractAt("FairDotClone", launched.tokenAddress);
-    const pool = await ethers.getContractAt("FairDotPoolClone", launched.poolAddress);
-    await pool.connect(user1).buy(0, { value: S });
-    await pool.connect(user2).buy(0, { value: 500n * S });
-    await pool.connect(user1).checkpointLock();
+  it("groups same-day appreciation into one bucket and gives a new UTC day its own ten-day timer", async function () {
+    const { user1, token, poolSigner, entryPrice, observe } = await protectedCloneAtSixX();
+    await observe(12n);
+    const firstIncrement = await token.appreciationBucket(user1.address, 0, 0);
+    expect(await token.appreciationBucketCount(user1.address, 0)).to.equal(1n);
+    await observe(24n);
+    const sameDayBucket = await token.appreciationBucket(user1.address, 0, 0);
+    expect(await token.appreciationBucketCount(user1.address, 0)).to.equal(1n);
+    expect(sameDayBucket.amount).to.be.greaterThan(firstIncrement.amount);
 
-    for (let day = 0; day < 10; day++) {
+    await mineAfter(DAY + 5);
+    await observe(48n);
+    expect(await token.appreciationBucketCount(user1.address, 0)).to.equal(2n);
+    const nextDayBucket = await token.appreciationBucket(user1.address, 0, 1);
+    expect(nextDayBucket.utcDay).to.be.greaterThan(sameDayBucket.utcDay);
+    expect(nextDayBucket.startActiveTime).to.be.greaterThan(sameDayBucket.startActiveTime);
+
+    // After ten active days from bucket 0, it is fully released; bucket 1 has only nine days.
+    for (let day = 0; day < 9; day++) {
       await mineAfter(DAY + 5);
-      await pool.connect(user3).buy(0, { value: S / 1_000n });
+      await token.connect(poolSigner).recordPrice(entryPrice * 48n, 1_000_000n * S);
+      await token.connect(poolSigner).checkpointLock(user1.address);
     }
-    await mineAfter(5);
-    await pool.connect(user3).buy(0, { value: S / 1_000n });
+    expect(await token.appreciationBucketCount(user1.address, 0)).to.equal(1n);
+    const laterBucket = await token.appreciationBucket(user1.address, 0, 0);
+    expect(laterBucket.utcDay).to.equal(nextDayBucket.utcDay);
+    expect(laterBucket.released).to.be.greaterThan(0n);
+    expect(laterBucket.released).to.be.lessThan(laterBucket.amount);
+    const lot = await token.lots(user1.address, 0);
+    expect(lot.appreciationReleasedProfit).to.be.greaterThan(0n);
+    expect((await token.positions(user1.address)).lockedProfitStart).to.equal(nextDayBucket.startActiveTime);
+  });
 
-    const [withdrawable, lockedRemaining, currentRatio] = await token.getWithdrawable(user1.address);
-    expect(currentRatio).to.be.greaterThan(5n * 10_000n);
-    expect(lockedRemaining).to.be.greaterThan(0n);
-    expect(withdrawable + lockedRemaining).to.equal(await token.balanceOf(user1.address));
-    // This records current behavior for product review; it is not approval that this is the intended policy.
+  it("compacts completed buckets during twelve consecutive UTC-day appreciation checkpoints", async function () {
+    const { user1, token, poolSigner, entryPrice } = await protectedCloneAtSixX();
+    for (let day = 1; day <= 12; day++) {
+      await mineAfter(DAY + 5);
+      await token.connect(poolSigner).recordPrice(entryPrice * BigInt(6 + day * 6), 1_000_000n * S);
+      await token.connect(poolSigner).checkpointLock(user1.address);
+      expect(await token.appreciationBucketCount(user1.address, 0)).to.be.at.most(10n);
+    }
+    expect((await token.lots(user1.address, 0)).appreciationReleasedProfit).to.be.greaterThan(0n);
+    expect(await token.appreciationBucketCount(user1.address, 0)).to.be.at.most(10n);
+  });
+
+  it("transfers each appreciation bucket and its release progress proportionally", async function () {
+    const { user1, user2, token, observe } = await protectedCloneAtSixX();
+    await observe(12n);
+    const originalBucket = await token.appreciationBucket(user1.address, 0, 0);
+    const originalLot = await token.lots(user1.address, 0);
+    const transferAmount = originalLot.quantity / 3n;
+    await token.connect(user1).transfer(user2.address, transferAmount);
+
+    expect(await token.appreciationBucketCount(user1.address, 0)).to.equal(1n);
+    expect(await token.appreciationBucketCount(user2.address, 0)).to.equal(1n);
+    const senderBucket = await token.appreciationBucket(user1.address, 0, 0);
+    const receiverBucket = await token.appreciationBucket(user2.address, 0, 0);
+    expect(senderBucket.amount + receiverBucket.amount).to.equal(originalBucket.amount);
+    expect(senderBucket.scheduledAmount + receiverBucket.scheduledAmount).to.equal(originalBucket.scheduledAmount);
+    expect(senderBucket.consumed + receiverBucket.consumed).to.equal(originalBucket.consumed);
+    expect(senderBucket.released + receiverBucket.released).to.be.greaterThanOrEqual(originalBucket.released);
+    expect(receiverBucket.utcDay).to.equal(originalBucket.utcDay);
+    expect(receiverBucket.startActiveTime).to.equal(originalBucket.startActiveTime);
+  });
+
+  it("consumes released appreciation only when that profit is sold through the canonical pool", async function () {
+    const { user1, token, pool, poolSigner, entryPrice } = await protectedCloneAtSixX();
+    await token.connect(poolSigner).recordPrice(entryPrice * 12n, 10n ** 24n);
+    await token.connect(poolSigner).checkpointLock(user1.address);
+    for (let day = 0; day < 5; day++) {
+      await mineAfter(DAY + 5);
+      await token.connect(poolSigner).recordPrice(entryPrice * 12n, 10n ** 24n);
+      await token.connect(poolSigner).checkpointLock(user1.address);
+    }
+
+    const lotBefore = await token.lots(user1.address, 0);
+    const bucketBefore = await token.appreciationBucket(user1.address, 0, 0);
+    const baseScheduleAmount = lotBefore.checkpointScheduleAmount;
+    const appreciationScheduleAmount = bucketBefore.scheduledAmount;
+    const price = await token.getEffectivePrice();
+    const principalAvailable = lotBefore.quoteBasis * S / price;
+    const saleAmount = principalAvailable + lotBefore.releasedProfit + bucketBefore.released / 2n;
+    const [withdrawable] = await token.getWithdrawable(user1.address);
+    expect(saleAmount).to.be.lessThanOrEqual(withdrawable);
+    await token.connect(user1).approve(await pool.getAddress(), saleAmount);
+    const balanceBefore = await token.balanceOf(user1.address);
+    await pool.connect(user1).sell(saleAmount, 0);
+    expect(await token.balanceOf(user1.address)).to.equal(balanceBefore - saleAmount);
+    const bucketAfterSale = await token.appreciationBucket(user1.address, 0, 0);
+    expect(bucketAfterSale.amount).to.be.lessThan(bucketBefore.amount);
+
+    await mineAfter(DAY + 5);
+    await token.connect(poolSigner).recordPrice(entryPrice * 12n, 10n ** 24n);
+    await token.connect(poolSigner).checkpointLock(user1.address);
+    const lotAfterDay = await token.lots(user1.address, 0);
+    const bucketAfterDay = await token.appreciationBucket(user1.address, 0, 0);
+    expect(lotAfterDay.releasedProfit).to.be.lessThan(baseScheduleAmount * 20n / 100n);
+    expect(bucketAfterDay.released).to.be.lessThan(appreciationScheduleAmount * 40n / 100n);
+  });
+
+  it("does not re-lock released appreciation after the ratio falls below 5x and recovers", async function () {
+    const { user1, token, poolSigner, entryPrice, observe } = await protectedCloneAtSixX();
+    await observe(12n);
+    const bucket = await token.appreciationBucket(user1.address, 0, 0);
+    await token.connect(poolSigner).recordPrice(entryPrice * 4n, 10n ** 30n);
+    await token.connect(poolSigner).checkpointLock(user1.address);
+    expect(await token.appreciationBucketCount(user1.address, 0)).to.equal(0n);
+    expect((await token.lots(user1.address, 0)).appreciationReleasedProfit).to.equal(bucket.amount);
+    const [, , belowFiveRatio] = await token.getWithdrawable(user1.address);
+    expect(belowFiveRatio).to.be.lessThan(5n * 10_000n);
+
+    await token.connect(poolSigner).recordPrice(entryPrice * 6n, 10n ** 32n);
+    await token.connect(poolSigner).checkpointLock(user1.address);
+    const [withdrawable, locked] = await token.getWithdrawable(user1.address);
+    expect(locked).to.equal(0n);
+    expect(withdrawable).to.equal(await token.balanceOf(user1.address));
+  });
+
+  it("freezes appreciation release progress when stale emergency begins", async function () {
+    const { user1, token, pool, poolSigner, observe } = await protectedCloneAtSixX();
+    await observe(12n);
+    await mineAfter(3 * DAY);
+    await token.connect(poolSigner).recordPrice(await token.getCurrentPrice(), 1_000_000n * S);
+    await token.connect(poolSigner).checkpointLock(user1.address);
+    const beforeEmergency = await token.appreciationBucket(user1.address, 0, 0);
+    expect(beforeEmergency.released).to.be.greaterThan(0n);
+
+    await mineAfter(8 * DAY);
+    await pool.connect(user1).checkpointLock();
+    expect((await token.emergencyState(user1.address)).windowStart).to.be.greaterThan(0n);
+    const atEmergency = await token.appreciationBucket(user1.address, 0, 0);
+    const [withdrawableAtEmergency, lockedAtEmergency] = await token.getWithdrawable(user1.address);
+    await mineAfter(2 * DAY);
+    const frozenBucket = await token.appreciationBucket(user1.address, 0, 0);
+    expect(frozenBucket.released).to.equal(atEmergency.released);
+    const [withdrawableLater, lockedLater] = await token.getWithdrawable(user1.address);
+    expect(withdrawableLater).to.equal(withdrawableAtEmergency);
+    expect(lockedLater).to.equal(lockedAtEmergency);
   });
 
   it("compares actual createMeme gas with the original deployment Factory", async function () {

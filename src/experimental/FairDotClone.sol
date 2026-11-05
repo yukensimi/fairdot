@@ -30,6 +30,19 @@ contract FairDotClone is ERC20, Ownable {
         uint256 principalConsumed;
         bool checkpointed;
         bool mergeable;
+        uint256 peakPrice;
+        uint256 peakPrincipalAvailable;
+        uint256 appreciationReleasedProfit;
+        uint256 checkpointScheduleAmount;
+        uint256 checkpointProfitConsumed;
+    }
+    struct AppreciationBucket {
+        uint64 utcDay;
+        uint64 startActiveTime;
+        uint256 scheduledAmount;
+        uint256 amount;
+        uint256 released;
+        uint256 consumed;
     }
     struct UserPosition {
         uint256 avgEntryPrice;
@@ -44,6 +57,7 @@ contract FairDotClone is ERC20, Ownable {
     struct EmergencySale { uint64 timestamp; uint256 amount; }
 
     mapping(address => Lot[]) private _lots;
+    mapping(address => mapping(uint256 => AppreciationBucket[])) private _appreciationBuckets;
     mapping(address => UserPosition) private _positions;
     mapping(address => EmergencyState) public emergencyState;
     mapping(address => EmergencySale[]) private _emergencySales;
@@ -69,6 +83,7 @@ contract FairDotClone is ERC20, Ownable {
     event LiquidityPoolSet(address indexed pool);
     event MinVolumeConfigured(uint256 minVolumeBps, uint256 minVolumeAbsolute);
     event LotTransferred(address indexed from, address indexed to, uint256 quantity, uint256 quoteBasis, uint256 lotIndex);
+    event AppreciationBucketCreated(address indexed user, uint256 indexed lotIndex, uint64 indexed utcDay, uint256 amount);
 
     constructor() ERC20("", "") Ownable(msg.sender) {
         // Lock the implementation. A newly created clone has independent zeroed storage.
@@ -101,6 +116,14 @@ contract FairDotClone is ERC20, Ownable {
     function positions(address user) external view returns (UserPosition memory) { return _positionView(user); }
     function getLotCount(address user) external view returns (uint256) { return _lots[user].length; }
     function lots(address user, uint256 index) external view returns (Lot memory) { return _lots[user][index]; }
+    function appreciationBucketCount(address user, uint256 lotIndex) external view returns (uint256) {
+        return _appreciationBuckets[user][lotIndex].length;
+    }
+    function appreciationBucket(address user, uint256 lotIndex, uint256 bucketIndex)
+        external view returns (AppreciationBucket memory)
+    {
+        return _appreciationBuckets[user][lotIndex][bucketIndex];
+    }
 
     function setLiquidityPool(address pool) external onlyOwner {
         require(!tradingActive, "Trading already active");
@@ -156,7 +179,7 @@ contract FairDotClone is ERC20, Ownable {
                 return;
             }
         }
-        a.push(Lot(amount, quotePaid, day, 0, 0, 0, 0, 0, false, true));
+        a.push(Lot(amount, quotePaid, day, 0, 0, 0, 0, 0, false, true, 0, 0, 0, 0, 0));
         emit BuyRecorded(buyer, amount, quotePaid, a.length - 1);
         _syncPosition(buyer);
         lastBuyTimestamp = block.timestamp;
@@ -185,11 +208,14 @@ contract FairDotClone is ERC20, Ownable {
         }
         uint256 activeNow = activeClockNow();
         Lot[] storage a = _lots[user];
+        bool volumeMet = _volumeThresholdMet(getQuoteVolume24h());
         for (uint256 i; i < a.length; ++i) {
             Lot storage lot = a[i];
-            if (lot.quantity > 0) _persistReleased(lot, price, true, activeNow);
+            if (lot.quantity == 0 || !lot.checkpointed) continue;
+            _persistReleased(user, i, price, true, activeNow);
+            if (volumeMet) _bookAppreciation(user, i, price, activeNow);
         }
-        if (!_volumeThresholdMet(getQuoteVolume24h())) { _syncPosition(user); return; }
+        if (!volumeMet) { _syncPosition(user); return; }
         for (uint256 i; i < a.length; ++i) {
             Lot storage lot = a[i];
             if (lot.quantity == 0 || lot.checkpointed || !_triggerMet(lot, price)) continue;
@@ -198,6 +224,10 @@ contract FairDotClone is ERC20, Ownable {
             lot.checkpointProfit = lot.quantity - lot.principalBudget;
             lot.checkpointActiveTime = uint64(activeNow);
             lot.checkpointed = true;
+            lot.peakPrice = price;
+            lot.peakPrincipalAvailable = lot.principalBudget;
+            lot.checkpointScheduleAmount = lot.checkpointProfit;
+            lot.checkpointProfitConsumed = 0;
             emit ProtectionActivated(user, i, price * BASIS_POINTS / _entryPrice(lot));
         }
         _syncPosition(user);
@@ -217,7 +247,7 @@ contract FairDotClone is ERC20, Ownable {
                         // Freeze only the release accrued while observations were active.
                         // Do not count the stale gap or unlock profit from stale price data.
                         if (_triggerMet(lot, e.priceSnapshot)) {
-                            _persistReleased(lot, e.priceSnapshot, true, activeClock);
+                            _persistReleased(user, i, e.priceSnapshot, true, activeClock);
                         }
                         continue;
                     }
@@ -225,6 +255,10 @@ contract FairDotClone is ERC20, Ownable {
                     lot.checkpointProfit = lot.quantity - lot.principalBudget;
                     lot.checkpointActiveTime = uint64(activeClock);
                     lot.checkpointed = true;
+                    lot.peakPrice = e.priceSnapshot;
+                    lot.peakPrincipalAvailable = lot.principalBudget;
+                    lot.checkpointScheduleAmount = lot.checkpointProfit;
+                    lot.checkpointProfitConsumed = 0;
                 }
                 _syncPosition(user);
             }
@@ -283,7 +317,8 @@ contract FairDotClone is ERC20, Ownable {
                 if (entry != 0) currentRatio = emergency.priceSnapshot * BASIS_POINTS / entry;
                 if (lot.checkpointed) {
                     principalTotal += _principalAvailable(lot, emergency.priceSnapshot);
-                    releasedProfitTotal += lot.releasedProfit;
+                    releasedProfitTotal += lot.releasedProfit + lot.appreciationReleasedProfit
+                        + _storedBucketReleases(user, i);
                 }
             }
             uint256 cap = emergency.snapshot * EMERGENCY_QUOTA_BPS / BASIS_POINTS;
@@ -310,7 +345,10 @@ contract FairDotClone is ERC20, Ownable {
             uint256 eligible;
             if (!locked) eligible = lot.quantity;
             else {
-                eligible = _principalAvailable(lot, price) + _releasedNow(lot, price, activeNow, !fresh || _triggerMet(lot, price));
+                eligible = _principalAvailable(lot, price)
+                    + _releasedNow(lot, price, activeNow, !fresh || _triggerMet(lot, price))
+                    + lot.appreciationReleasedProfit
+                    + _appreciationReleasedNow(user, i, activeNow, !fresh || _triggerMet(lot, price));
                 if (eligible > lot.quantity) eligible = lot.quantity;
                 lockedRemaining += lot.quantity - eligible;
                 status = 1;
@@ -387,15 +425,45 @@ contract FairDotClone is ERC20, Ownable {
             Lot storage lot = src[i];
             if (lot.quantity == 0) continue;
             uint256 moved = lot.quantity < remaining ? lot.quantity : remaining;
-            uint256 basis = moved == lot.quantity ? lot.quoteBasis : lot.quoteBasis * moved / lot.quantity;
-            uint256 profit = moved == lot.quantity ? lot.checkpointProfit : lot.checkpointProfit * moved / lot.quantity;
-            uint256 released = moved == lot.quantity ? lot.releasedProfit : lot.releasedProfit * moved / lot.quantity;
-            uint256 principalBudget = moved == lot.quantity ? lot.principalBudget : lot.principalBudget * moved / lot.quantity;
-            uint256 principalConsumed = moved == lot.quantity ? lot.principalConsumed : lot.principalConsumed * moved / lot.quantity;
+            uint256 oldQuantity = lot.quantity;
+            bool fullLot = moved == oldQuantity;
+            uint256 basis = fullLot ? lot.quoteBasis : lot.quoteBasis * moved / oldQuantity;
+            uint256 profit = fullLot ? lot.checkpointProfit : lot.checkpointProfit * moved / oldQuantity;
+            uint256 released = fullLot ? lot.releasedProfit : lot.releasedProfit * moved / oldQuantity;
+            uint256 principalBudget = fullLot ? lot.principalBudget : lot.principalBudget * moved / oldQuantity;
+            uint256 principalConsumed = fullLot ? lot.principalConsumed : lot.principalConsumed * moved / oldQuantity;
+            uint256 checkpointSchedule = fullLot
+                ? lot.checkpointScheduleAmount : lot.checkpointScheduleAmount * moved / oldQuantity;
+            uint256 appreciationReleased = fullLot
+                ? lot.appreciationReleasedProfit : lot.appreciationReleasedProfit * moved / oldQuantity;
+            uint256 peakPrice = lot.peakPrice;
             lot.quantity -= moved; lot.quoteBasis -= basis; lot.checkpointProfit -= profit; lot.releasedProfit -= released;
             lot.principalBudget -= principalBudget; lot.principalConsumed -= principalConsumed;
+            lot.appreciationReleasedProfit -= appreciationReleased;
+            lot.checkpointScheduleAmount -= checkpointSchedule;
+            lot.checkpointProfitConsumed = lot.checkpointScheduleAmount - lot.checkpointProfit;
             dst.push(Lot(moved, basis, lot.purchaseDay, lot.checkpointActiveTime, profit, released,
-                principalBudget, principalConsumed, lot.checkpointed, false));
+                principalBudget, principalConsumed, lot.checkpointed, false, peakPrice, 0, appreciationReleased,
+                checkpointSchedule, checkpointSchedule - profit));
+            uint256 dstIndex = dst.length - 1;
+            AppreciationBucket[] storage srcBuckets = _appreciationBuckets[from][i];
+            AppreciationBucket[] storage dstBuckets = _appreciationBuckets[to][dstIndex];
+            for (uint256 b; b < srcBuckets.length; ++b) {
+                AppreciationBucket storage bucket = srcBuckets[b];
+                uint256 bucketSchedule = fullLot ? bucket.scheduledAmount : bucket.scheduledAmount * moved / oldQuantity;
+                uint256 bucketAmount = fullLot ? bucket.amount : bucket.amount * moved / oldQuantity;
+                uint256 bucketReleased = fullLot ? bucket.released : bucket.released * moved / oldQuantity;
+                if (bucketSchedule < bucketAmount) bucketSchedule = bucketAmount;
+                bucket.scheduledAmount -= bucketSchedule;
+                bucket.amount -= bucketAmount;
+                bucket.released -= bucketReleased;
+                bucket.consumed = bucket.scheduledAmount - bucket.amount;
+                dstBuckets.push(AppreciationBucket(bucket.utcDay, bucket.startActiveTime, bucketSchedule,
+                    bucketAmount, bucketReleased, bucketSchedule - bucketAmount));
+            }
+            if (fullLot) delete _appreciationBuckets[from][i];
+            if (lot.peakPrice != 0) lot.peakPrincipalAvailable = _principalAvailable(lot, lot.peakPrice);
+            if (peakPrice != 0) dst[dstIndex].peakPrincipalAvailable = _principalAvailable(dst[dstIndex], peakPrice);
             emit LotTransferred(from, to, moved, basis, dst.length - 1);
             remaining -= moved;
         }
@@ -429,7 +497,6 @@ contract FairDotClone is ERC20, Ownable {
             Lot storage lot = a[i];
             if (lot.quantity == 0) continue;
             uint256 principalAvailable;
-            uint256 profitAvailable;
             uint256 available;
             if (emergency.windowStart != 0) {
                 if (!lot.checkpointed) continue;
@@ -437,10 +504,10 @@ contract FairDotClone is ERC20, Ownable {
                 if (principalAvailable > emergencyPrincipalRemaining) {
                     principalAvailable = emergencyPrincipalRemaining;
                 }
-                profitAvailable = lot.releasedProfit;
-                available = principalAvailable + profitAvailable;
+                available = principalAvailable + lot.releasedProfit + lot.appreciationReleasedProfit
+                    + _storedBucketReleases(user, i);
             } else {
-                available = _eligibleLot(lot, price, fresh, activeNow);
+                available = _eligibleLot(user, i, lot, price, fresh, activeNow);
                 principalAvailable = lot.checkpointed ? _principalAvailable(lot, price) : 0;
             }
             if (available == 0) continue;
@@ -450,12 +517,9 @@ contract FairDotClone is ERC20, Ownable {
             uint256 profitTaken = taken - principalTaken;
             lot.quantity -= taken;
             lot.quoteBasis -= basis;
-            if (lot.checkpointed && profitTaken > 0) {
-                require(profitTaken <= lot.releasedProfit, "Profit not released");
-                lot.checkpointProfit -= profitTaken;
-                lot.releasedProfit -= profitTaken;
-            }
+            if (lot.checkpointed && profitTaken > 0) _consumeReleasedProfit(user, i, lot, profitTaken);
             lot.principalConsumed += principalTaken;
+            if (lot.peakPrice != 0) lot.peakPrincipalAvailable = _principalAvailable(lot, lot.peakPrice);
             if (emergency.windowStart != 0) {
                 emergencyPrincipalRemaining -= principalTaken;
                 emergencyPrincipalSold += principalTaken;
@@ -477,24 +541,153 @@ contract FairDotClone is ERC20, Ownable {
         bool fresh = getEffectivePrice() != 0;
         uint256 activeNow = activeClockNow();
         Lot[] storage a = _lots[user];
-        for (uint256 i; i < a.length; ++i) if (a[i].quantity > 0) _persistReleased(a[i], price, !fresh || _triggerMet(a[i], price), activeNow);
+        bool volumeMet = _volumeThresholdMet(getQuoteVolume24h());
+        for (uint256 i; i < a.length; ++i) {
+            if (a[i].quantity == 0) continue;
+            bool triggered = !fresh || _triggerMet(a[i], price);
+            _persistReleased(user, i, price, triggered, activeNow);
+            if (fresh && volumeMet) _bookAppreciation(user, i, price, activeNow);
+        }
     }
-    function _persistReleased(Lot storage lot, uint256 price, bool volumeMet, uint256 activeNow) private {
+    function _persistReleased(address user, uint256 lotIndex, uint256 price, bool volumeMet, uint256 activeNow) private {
+        Lot storage lot = _lots[user][lotIndex];
         if (!lot.checkpointed) return;
         uint256 released = _releasedNow(lot, price, activeNow, volumeMet && _triggerMet(lot, price));
         if (released > lot.releasedProfit) lot.releasedProfit = released;
+        AppreciationBucket[] storage buckets = _appreciationBuckets[user][lotIndex];
+        uint256 i;
+        while (i < buckets.length) {
+            AppreciationBucket storage bucket = buckets[i];
+            uint256 bucketReleased = _bucketReleasedNow(bucket, activeNow, volumeMet && _triggerMet(lot, price));
+            if (bucketReleased > bucket.released) bucket.released = bucketReleased;
+            if (bucket.released == bucket.amount) {
+                lot.appreciationReleasedProfit += bucket.amount;
+                for (uint256 j = i; j + 1 < buckets.length; ++j) buckets[j] = buckets[j + 1];
+                buckets.pop();
+            } else {
+                ++i;
+            }
+        }
+    }
+    function _bookAppreciation(address user, uint256 lotIndex, uint256 price, uint256 activeNow) private {
+        Lot storage lot = _lots[user][lotIndex];
+        if (!lot.checkpointed || !_triggerMet(lot, price) || price <= lot.peakPrice) return;
+        uint256 principalNow = _principalAvailable(lot, price);
+        uint256 amount = lot.peakPrincipalAvailable > principalNow
+            ? lot.peakPrincipalAvailable - principalNow : 0;
+        lot.peakPrice = price;
+        lot.peakPrincipalAvailable = principalNow;
+        if (amount == 0) return;
+
+        uint256 alreadyAllocated = lot.checkpointProfit + lot.appreciationReleasedProfit;
+        AppreciationBucket[] storage buckets = _appreciationBuckets[user][lotIndex];
+        for (uint256 i; i < buckets.length; ++i) alreadyAllocated += buckets[i].amount;
+        if (principalNow + alreadyAllocated >= lot.quantity) return;
+        uint256 unallocated = lot.quantity - principalNow - alreadyAllocated;
+        if (amount > unallocated) amount = unallocated;
+        if (amount == 0) return;
+
+        uint64 day = uint64(block.timestamp / 1 days);
+        if (buckets.length > 0 && buckets[buckets.length - 1].utcDay == day) {
+            // Increments recognized on the same UTC day share that day's first active-time start.
+            buckets[buckets.length - 1].scheduledAmount += amount;
+            buckets[buckets.length - 1].amount += amount;
+        } else {
+            buckets.push(AppreciationBucket(day, uint64(activeNow), amount, amount, 0, 0));
+        }
+        emit AppreciationBucketCreated(user, lotIndex, day, amount);
     }
     function _releasedNow(Lot storage lot, uint256, uint256 activeNow, bool triggered) private view returns (uint256) {
         if (!lot.checkpointed || lot.checkpointProfit == 0) return 0;
         if (!triggered) return lot.checkpointProfit;
         uint256 elapsed = activeNow > lot.checkpointActiveTime ? activeNow - lot.checkpointActiveTime : 0;
-        uint256 linear = elapsed >= RELEASE_DAYS * 1 days
-            ? lot.checkpointProfit : lot.checkpointProfit * elapsed / (RELEASE_DAYS * 1 days);
+        uint256 cumulative = elapsed >= RELEASE_DAYS * 1 days
+            ? lot.checkpointScheduleAmount : lot.checkpointScheduleAmount * elapsed / (RELEASE_DAYS * 1 days);
+        uint256 linear = cumulative > lot.checkpointProfitConsumed ? cumulative - lot.checkpointProfitConsumed : 0;
+        if (linear > lot.checkpointProfit) linear = lot.checkpointProfit;
         return linear > lot.releasedProfit ? linear : lot.releasedProfit;
     }
-    function _eligibleLot(Lot storage lot, uint256 price, bool fresh, uint256 activeNow) private view returns (uint256) {
+    function _bucketReleasedNow(AppreciationBucket storage bucket, uint256 activeNow, bool triggered)
+        private view returns (uint256)
+    {
+        if (!triggered) return bucket.amount;
+        uint256 elapsed = activeNow > bucket.startActiveTime ? activeNow - bucket.startActiveTime : 0;
+        uint256 cumulative = elapsed >= RELEASE_DAYS * 1 days
+            ? bucket.scheduledAmount : bucket.scheduledAmount * elapsed / (RELEASE_DAYS * 1 days);
+        uint256 linear = cumulative > bucket.consumed ? cumulative - bucket.consumed : 0;
+        if (linear > bucket.amount) linear = bucket.amount;
+        return linear > bucket.released ? linear : bucket.released;
+    }
+    function _appreciationReleasedNow(address user, uint256 lotIndex, uint256 activeNow, bool triggered)
+        private view returns (uint256 released)
+    {
+        AppreciationBucket[] storage buckets = _appreciationBuckets[user][lotIndex];
+        for (uint256 i; i < buckets.length; ++i) released += _bucketReleasedNow(buckets[i], activeNow, triggered);
+    }
+    function _storedBucketReleases(address user, uint256 lotIndex) private view returns (uint256 released) {
+        AppreciationBucket[] storage buckets = _appreciationBuckets[user][lotIndex];
+        for (uint256 i; i < buckets.length; ++i) released += buckets[i].released;
+    }
+    function _lockedAppreciation(address user, uint256 lotIndex) private view returns (uint256 locked) {
+        AppreciationBucket[] storage buckets = _appreciationBuckets[user][lotIndex];
+        for (uint256 i; i < buckets.length; ++i) locked += buckets[i].amount - buckets[i].released;
+    }
+    function _earliestLockedStart(address user, uint256 lotIndex, Lot storage lot)
+        private view returns (uint256 start)
+    {
+        bool found;
+        if (lot.checkpointProfit > lot.releasedProfit) {
+            start = lot.checkpointActiveTime;
+            found = true;
+        }
+        AppreciationBucket[] storage buckets = _appreciationBuckets[user][lotIndex];
+        for (uint256 i; i < buckets.length; ++i) {
+            if (buckets[i].amount > buckets[i].released
+                && (!found || buckets[i].startActiveTime < start)) {
+                start = buckets[i].startActiveTime;
+                found = true;
+            }
+        }
+    }
+    function _consumeReleasedProfit(address user, uint256 lotIndex, Lot storage lot, uint256 amount) private {
+        uint256 remaining = amount;
+        uint256 fromBase = remaining < lot.releasedProfit ? remaining : lot.releasedProfit;
+        lot.releasedProfit -= fromBase;
+        lot.checkpointProfit -= fromBase;
+        lot.checkpointProfitConsumed += fromBase;
+        remaining -= fromBase;
+
+        uint256 fromAggregate = remaining < lot.appreciationReleasedProfit
+            ? remaining : lot.appreciationReleasedProfit;
+        lot.appreciationReleasedProfit -= fromAggregate;
+        remaining -= fromAggregate;
+
+        AppreciationBucket[] storage buckets = _appreciationBuckets[user][lotIndex];
+        uint256 i;
+        while (remaining > 0 && i < buckets.length) {
+            AppreciationBucket storage bucket = buckets[i];
+            uint256 fromBucket = remaining < bucket.released ? remaining : bucket.released;
+            bucket.released -= fromBucket;
+            bucket.amount -= fromBucket;
+            bucket.consumed += fromBucket;
+            remaining -= fromBucket;
+            if (bucket.amount == 0) {
+                for (uint256 j = i; j + 1 < buckets.length; ++j) buckets[j] = buckets[j + 1];
+                buckets.pop();
+            } else {
+                ++i;
+            }
+        }
+        require(remaining == 0, "Profit not released");
+    }
+    function _eligibleLot(address user, uint256 lotIndex, Lot storage lot, uint256 price, bool fresh, uint256 activeNow)
+        private view returns (uint256)
+    {
         if (!lot.checkpointed || (fresh && !_triggerMet(lot, price))) return lot.quantity;
-        uint256 eligible = _principalAvailable(lot, price) + _releasedNow(lot, price, activeNow, !fresh || _triggerMet(lot, price));
+        uint256 eligible = _principalAvailable(lot, price)
+            + _releasedNow(lot, price, activeNow, !fresh || _triggerMet(lot, price))
+            + lot.appreciationReleasedProfit
+            + _appreciationReleasedNow(user, lotIndex, activeNow, !fresh || _triggerMet(lot, price));
         return eligible > lot.quantity ? lot.quantity : eligible;
     }
     function _positionView(address user) private view returns (UserPosition memory p) {
@@ -505,9 +698,13 @@ contract FairDotClone is ERC20, Ownable {
             Lot storage lot = a[i];
             p.trackedTokens += lot.quantity;
             p.totalInvested += lot.quoteBasis;
-            if (lot.quantity > 0 && lot.checkpointProfit > lot.releasedProfit) {
-                p.lockedProfitTokens += lot.checkpointProfit - lot.releasedProfit;
-                if (p.lockedProfitStart == 0) p.lockedProfitStart = lot.checkpointActiveTime;
+            if (lot.quantity > 0) {
+                if (lot.checkpointProfit > lot.releasedProfit) p.lockedProfitTokens += lot.checkpointProfit - lot.releasedProfit;
+                p.lockedProfitTokens += _lockedAppreciation(user, i);
+                uint256 lockedStart = _earliestLockedStart(user, i, lot);
+                if (lockedStart != 0 && (p.lockedProfitStart == 0 || lockedStart < p.lockedProfitStart)) {
+                    p.lockedProfitStart = lockedStart;
+                }
             }
         }
         p.avgEntryPrice = p.trackedTokens == 0 ? 0 : p.totalInvested * PRECISION / p.trackedTokens;
@@ -519,9 +716,13 @@ contract FairDotClone is ERC20, Ownable {
         for (uint256 i; i < a.length; ++i) {
             Lot storage lot = a[i];
             p.trackedTokens += lot.quantity; p.totalInvested += lot.quoteBasis;
-            if (lot.quantity > 0 && lot.checkpointProfit > lot.releasedProfit) {
-                p.lockedProfitTokens += lot.checkpointProfit - lot.releasedProfit;
-                if (p.lockedProfitStart == 0) p.lockedProfitStart = lot.checkpointActiveTime;
+            if (lot.quantity > 0) {
+                if (lot.checkpointProfit > lot.releasedProfit) p.lockedProfitTokens += lot.checkpointProfit - lot.releasedProfit;
+                p.lockedProfitTokens += _lockedAppreciation(user, i);
+                uint256 lockedStart = _earliestLockedStart(user, i, lot);
+                if (lockedStart != 0 && (p.lockedProfitStart == 0 || lockedStart < p.lockedProfitStart)) {
+                    p.lockedProfitStart = lockedStart;
+                }
             }
         }
         p.avgEntryPrice = p.trackedTokens == 0 ? 0 : p.totalInvested * PRECISION / p.trackedTokens;
