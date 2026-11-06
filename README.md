@@ -65,7 +65,7 @@ fairdot/
 │   ├── CONCEPT.md                  # Product rules and mathematical model
 │   ├── QNA.md                      # Product and protocol Q&A
 │   └── LOW_COST_SPIKE.md            # Experimental clone benchmark and limitations
-├── index.html                     # Static presentation/dashboard mock-up; not wallet-integrated
+├── index.html                     # Static FairDot landing page and wallet-connected testnet dashboard
 ├── hardhat.config.cjs              # Solidity and Portaldot V3 EVM configuration
 ├── foundry.toml                    # Foundry configuration
 ├── remappings.txt                  # Foundry remappings
@@ -114,13 +114,31 @@ A successful launch through the same shared Factory is what lets independent pla
 - [x] Public GitHub repository with source and license.
 - [x] English concept, architecture, and Q&A documents aligned to the stated product position.
 - [x] Factory/Registry and local tests for a shared canonical token/pool pairing.
-- [x] Local compile and automated tests run for the current branch.
-- [ ] Complete a fresh code review and security-focused test pass after final changes.
-- [ ] Run Portaldot V3 Factory deployment preflight with the intended operator account.
-- [ ] Deploy the shared Factory/Registry and record verified addresses, transaction hash, and block.
-- [ ] Finalize seed and minimum-volume values, launch one or more example tokens, and record on-chain evidence.
-- [ ] Connect the static dashboard to the deployed Factory/Registry and validate wallet flows; the current `index.html` is a mock-up, not a live trading interface.
-- [ ] Prepare and link a concise project demo and any required submission materials on DoraHacks.
+- [x] Local compile, automated tests, JavaScript syntax checks, and frontend asset checks run for the current branch.
+- [x] Portaldot V3 Factory deployment completed on the testnet and deployment evidence recorded below.
+- [x] Shared Factory/Registry, token implementation, and pool implementation deployed on Portaldot V3 Testnet.
+- [x] Frontend connected to the deployed Factory/Registry with wallet selection, Portaldot network switching, Registry reads, workspace state, connection status, and logout flow.
+- [ ] Complete an independent security review and security-focused test pass after the final UI and wallet changes.
+- [ ] Launch and document one or more example meme tokens through the final frontend flow, including token/pool addresses and transaction evidence.
+- [ ] Complete the final manual end-to-end demo and paste the public demo evidence into the DoraHacks submission.
+
+The completed items describe the current repository and Portaldot V3 Testnet state. The remaining items are intentionally open: passing local tests and a testnet deployment do not replace an independent security review, final example-token evidence, or a recorded public demo.
+
+### Current testnet deployment record
+
+```text
+Network: Portaldot V3 Testnet
+RPC: https://test-evm-rpc-v3.portaldot.dev
+Chain ID: 420420777 (0x190f1ca9)
+Native symbol: tPOTv3
+
+Factory: 0x5b963401d69B0C1eE32213E15Ca5303c00fc1f82
+Token implementation: 0x89b3Fe9d31d830121a387BdE5D2dEA1BaA78Cb88
+Pool implementation: 0x0A3331ACf8B5258F35776F9166BC84CAe220126B
+Registry: 0x8a7B077B6E13EE86D99F0De055CE0Bf89B21167f
+Deployment transaction: 0x8036b9d19948387014286c76ae03d7c1b9453e7527af4c39dc0c0d4ad82772ae
+Deployment block: 341591
+```
 
 ## Disclaimer
 
