@@ -119,10 +119,10 @@ A successful launch through the same shared Factory is what lets independent pla
 - [x] Shared Factory/Registry, token implementation, and pool implementation deployed on Portaldot V3 Testnet.
 - [x] Frontend connected to the deployed Factory/Registry with wallet selection, Portaldot network switching, Registry reads, workspace state, connection status, and logout flow.
 - [ ] Complete an independent security review and security-focused test pass after the final UI and wallet changes.
-- [ ] Launch and document one or more example meme tokens through the final frontend flow, including token/pool addresses and transaction evidence.
-- [ ] Complete the final manual end-to-end demo and paste the public demo evidence into the DoraHacks submission.
+- [x] Launch and document an example meme token through the final frontend flow. The initial quote price, canonical pool, and total supply are recorded below.
+- [x] Complete the final manual end-to-end demo and submit the public demo and pitch deck materials on DoraHacks.
 
-The completed items describe the current repository and Portaldot V3 Testnet state. The remaining items are intentionally open: passing local tests and a testnet deployment do not replace an independent security review, final example-token evidence, or a recorded public demo.
+The completed items describe the current repository, Portaldot V3 Testnet state, example-token launch, and completed DoraHacks submission. The independent security review remains intentionally open: passing local tests and a testnet deployment do not replace an independent audit.
 
 ### Current testnet deployment record
 
@@ -139,6 +139,16 @@ Registry: 0x8a7B077B6E13EE86D99F0De055CE0Bf89B21167f
 Deployment transaction: 0x8036b9d19948387014286c76ae03d7c1b9453e7527af4c39dc0c0d4ad82772ae
 Deployment block: 341591
 ```
+
+### Example token launch record
+
+```text
+Initial quote price: 0.00000002 tPOTv3 / token
+Canonical pool: 0x67f8537c59BAbDCC173DcFBE7da01E3a05eA6595
+Total supply: 1,000,000,000
+```
+
+The token address and launch transaction hash should be appended to this record when available so the example launch is independently verifiable from the explorer.
 
 ## Disclaimer
 
