@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="logo.PNG" alt="FairDot logo" width="132" />
+  <img src="logo.png" alt="FairDot logo" width="132" />
   <h1>FairDot</h1>
   <p><strong>Transparent exit rules for memecoin markets</strong></p>
   <p>Built for <strong>Portaldot Hacker House 2026</strong> on DoraHacks · Ecosystem DApps</p>
