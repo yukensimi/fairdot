@@ -2,9 +2,9 @@
 
 ## Scope and implementation status
 
-This document describes the architecture implemented in the current repository and covered by local regression tests. It does not claim a network deployment, independent audit, or production readiness.
+This document describes the architecture implemented in the current repository and covered by local regression tests. The recorded deployment is on Portaldot V3 Testnet; this does not claim an independent audit or production readiness.
 
-FairDot is not one memecoin or one website. The repository includes FairDot Factory/Registry contracts that create one token and one canonical pool for each memecoin. Once a shared Factory is deployed, independent platforms can read the same Registry and call the identical token/pool addresses. Platform identity cannot be enforced on-chain; any interface that calls a canonical pool is subject to its rules. No network deployment is claimed here.
+FairDot is not one memecoin or one website. The repository includes FairDot Factory/Registry contracts that create one token and one canonical pool for each memecoin. Once a shared Factory is deployed, independent platforms can read the same Registry and call the identical token/pool addresses. Platform identity cannot be enforced on-chain; any interface that calls a canonical pool is subject to its rules. A Portaldot V3 Testnet deployment record is included in the repository README; this does not claim production readiness, an independent security audit, or mainnet deployment.
 
 > FairDot is designed to make memecoin exit rules more transparent and reduce the impact of large sell orders through one configured pool. It does not guarantee stable prices, recovery of the same quote value as a holder’s cost basis, or profit for every holder.
 
